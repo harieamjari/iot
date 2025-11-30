@@ -10,4 +10,4 @@ endif()
 idf_component_register(SRCS "main.c" "wifi.c"
                     INCLUDE_DIRS "."
                     PRIV_REQUIRES ${requires}
-                    EMBED_FILES "embed/index.html" "embed/body.js")
+                    EMBED_TXTFILES embed/index.html embed/body.js)

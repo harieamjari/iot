@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html>
 	<head>
-		<meta name="viewport" content="with=device-width, initial-scale=1">
 		<link rel="icon" href="data:,">
+		<meta name="viewport" content="with=device-width, initial-scale=1">
 		<title> ESP32 Smart Home IoT</title>
 		<style>
 			body, html {
@@ -40,7 +40,7 @@
 
 		<div id="Status" class="tabcontent">
 			<h3>Status</h3>
-				<table style="width:100%">
+				<table id="status_table" style="width:100%">
 					<tr>
 						<td>Time</td>
 						<td id="time"> 11:12PM  </td>
@@ -84,7 +84,7 @@
 				</table>
 			<h3>Schedule</h3>
 				<h4> Add a schedule to turn on the lights </h4>
-				<form action="/add_schedule" method="get">
+				<form action="/add_schedule" method="post">
 					<label for="dl_room"> Room </label> 
 					<select id="dl_room" name="rooms">
 						<option value="lroom">Living room</option>

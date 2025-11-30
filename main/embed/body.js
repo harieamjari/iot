@@ -10,6 +10,13 @@ function onClick(elmnt) {
 }
 function onChange(elmnt) { alert(elmnt.id + " was changed"); }
 function updateStatus(elmnt) {}
+var t = document.getElementById("status_table");
+t.innerHTML += `
+	<tr>
+		<td> Tests </td>
+		<td> sasa </td>
+	</tr>
+`;
 document.getElementById("statusTab").click();
 var date = new Date();
 document.getElementById("currentTime").value = date.getFullYear() + "-" +

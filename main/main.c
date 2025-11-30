@@ -12,6 +12,7 @@
 #include "esp_netif.h"
 #include "esp_tls.h"
 #include "esp_tls_crypto.h"
+#include "esp_chip_info.h"
 #include "protocol_examples_common.h"
 #include "protocol_examples_utils.h"
 #include <esp_http_server.h>
@@ -45,8 +46,7 @@ struct schedule_t {
   uint32_t start, end;
 };
 typedef struct server_ctx_t server_ctx_t;
-struct server_ctx_t server_ctx_t {
-  httpd_handle_t server;
+struct server_ctx_t {
   int nb_schedules;
   schedule_t schedules[MAX_SCHEDULES];
 };
@@ -55,17 +55,18 @@ static server_ctx_t server_ctx = {0};
 
 extern void wifi_init_softap(void);
 /* embedded files */
-extern const uint8_t root_html_start[] = asm("_binary_embed_index_html_start");
-extern const uint8_t root_html_end[] = asm("_binary_embed_index_html_end");
+extern const char root_html_start[] asm("_binary_index_html_start");
+extern const char root_html_end[] asm("_binary_index_html_end");
 
-extern const uint8_t body_js_start[] = asm("_binary_embed_body_js_start");
-extern const uint8_t body_js_end[] = asm("_binary_embed_body_js_end");
+extern const char body_js_start[] asm("_binary_body_js_start");
+extern const char body_js_end[] asm("_binary_body_js_end");
 
 static esp_err_t root_handler(httpd_req_t *req);
 
 static esp_err_t add_schedule_handler(httpd_req_t *req);
 static esp_err_t remove_schedule_handler(httpd_req_t *req);
-static esp_err_t js_body_handler(httpd_req_t *req);
+static esp_err_t status_handler(httpd_req_t *req);
+static esp_err_t body_js_handler(httpd_req_t *req);
 
 static const httpd_uri_t root = {
     /* queries, room, time start-end */
@@ -75,6 +76,14 @@ static const httpd_uri_t root = {
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = &server_ctx};
+static const httpd_uri_t status = {
+    /* queries, room, time start-end */
+    .uri = "/status",
+    .method = HTTP_GET,
+    .handler = status_handler,
+    /* Let's pass response string in user
+     * context to demonstrate it's usage */
+    .user_ctx = NULL};
 static const httpd_uri_t body_js = {
     /* queries, room, time start-end */
     .uri = "/body.js",
@@ -86,7 +95,7 @@ static const httpd_uri_t body_js = {
 static const httpd_uri_t add_schedule = {
     /* queries, room, time start-end */
     .uri = "/add_schedule",
-    .method = HTTP_GET,
+    .method = HTTP_POST,
     .handler = add_schedule_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
@@ -94,18 +103,32 @@ static const httpd_uri_t add_schedule = {
 static const httpd_uri_t remove_schedule = {
     /* queries, index */
     .uri = "/remove_schedule",
-    .method = HTTP_GET,
+    .method = HTTP_POST,
     .handler = remove_schedule_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = &server_ctx};
 
 /* An HTTP GET handler */
+static esp_err_t status_handler(httpd_req_t *req) {
+  esp_chip_info_t chip_info;
+  uint32_t flash_size;
+  esp_chip_info(&chip_info);
+  char buf[256];
+  snprintf(buf, 256, "<tr><td>Target</td><td>%s</td></tr>", CONFIG_IDF_TARGET);
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  snprintf(buf, 256, "<tr><td>Cores</td><td>%d</td></tr>", chip_info.cores);
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send_chunk(req, NULL, 0);
+  
+  return ESP_OK; 
+}
 static esp_err_t root_handler(httpd_req_t *req) {
   char *buf;
   size_t buf_len;
 
-  httpd_resp_send(req, root_html_start, root_html_end - root_html_start);
+  httpd_resp_set_hdr(req, "Connection", "close");
+  httpd_resp_send(req, root_html_start, HTTPD_RESP_USE_STRLEN);
   httpd_resp_send_chunk(req, NULL, 0);
 #if 0
   /* Get header value string length and allocate memory for length + 1,
@@ -197,9 +220,18 @@ static esp_err_t root_handler(httpd_req_t *req) {
   return ESP_OK;
 }
 
+static esp_err_t add_schedule_handler(httpd_req_t *req) {
+  httpd_resp_send(req, "ok add", 6);
+  return ESP_OK;
+}
+static esp_err_t remove_schedule_handler(httpd_req_t *req) {
+  httpd_resp_send(req, "ok rem", 6);
+  return ESP_OK;
+}
+
 static esp_err_t body_js_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/javascript");
-  httpd_resp_send(req, body_js_start, body_js_end - body_js_start);
+  httpd_resp_send(req, body_js_start, HTTPD_RESP_USE_STRLEN);
   httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK;
 }
@@ -287,11 +319,12 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err) {
   httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Some 404 error message");
   return ESP_FAIL;
 }
-
+#if 0
 static const httpd_uri_t ctrl = {.uri = "/ctrl",
                                  .method = HTTP_PUT,
                                  .handler = ctrl_put_handler,
                                  .user_ctx = NULL};
+#endif
 
 static httpd_handle_t start_webserver(void) {
   httpd_handle_t server = NULL;
@@ -303,8 +336,9 @@ static httpd_handle_t start_webserver(void) {
   if (httpd_start(&server, &config) == ESP_OK) {
     // Set URI handlers
     ESP_LOGI(TAG, "Registering URI handlers");
-    httpd_register_uri_handler(server, &root_handler);
-    httpd_register_uri_handler(server, &js_body);
+    httpd_register_uri_handler(server, &root);
+    httpd_register_uri_handler(server, &body_js);
+    httpd_register_uri_handler(server, &status);
     httpd_register_uri_handler(server, &add_schedule);
     httpd_register_uri_handler(server, &remove_schedule);
     ESP_LOGI(TAG, "Ok");
@@ -321,7 +355,7 @@ static esp_err_t stop_webserver(httpd_handle_t server) {
 
 static void disconnect_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data) {
-  httpd_handle_t *server = &((server_ctx_t *)arg)->server;
+  httpd_handle_t *server = arg;
   if (*server) {
     ESP_LOGI(TAG, "Stopping webserver");
     if (stop_webserver(*server) == ESP_OK) {
@@ -334,7 +368,7 @@ static void disconnect_handler(void *arg, esp_event_base_t event_base,
 
 static void connect_handler(void *arg, esp_event_base_t event_base,
                             int32_t event_id, void *event_data) {
-  httpd_handle_t *server = &((server_ctx_t *)arg)->server;
+  httpd_handle_t *server = arg;
   if (*server == NULL) {
     ESP_LOGI(TAG, "Starting webserver");
     *server = start_webserver();
@@ -342,7 +376,8 @@ static void connect_handler(void *arg, esp_event_base_t event_base,
 }
 
 void app_main(void) {
-  server_ctx.server = NULL;
+  memset(&server_ctx, 0, sizeof(server_ctx));
+  httpd_handle_t server;
   esp_err_t err = nvs_flash_init();
 
   if ((err == ESP_ERR_NVS_NO_FREE_PAGES) ||
@@ -356,7 +391,7 @@ void app_main(void) {
   wifi_init_softap();
 
   ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
-                                             &connect_handler, &server_ctx));
+                                             &connect_handler, &server));
   ESP_ERROR_CHECK(esp_event_handler_register(
       WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, &server));
 
