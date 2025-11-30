@@ -68,49 +68,46 @@ static esp_err_t remove_schedule_handler(httpd_req_t *req);
 static esp_err_t js_body_handler(httpd_req_t *req);
 
 static const httpd_uri_t root = {
-     /* queries, room, time start-end */
-     .uri       = "/",
-    .method    = HTTP_GET,
-    .handler   = root_handler,
+    /* queries, room, time start-end */
+    .uri = "/",
+    .method = HTTP_GET,
+    .handler = root_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
-    .user_ctx  = &server_ctx
-};
+    .user_ctx = &server_ctx};
 static const httpd_uri_t body_js = {
-     /* queries, room, time start-end */
-     .uri       = "/body.js",
-    .method    = HTTP_GET,
-    .handler   = body_js_handler,
+    /* queries, room, time start-end */
+    .uri = "/body.js",
+    .method = HTTP_GET,
+    .handler = body_js_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
-    .user_ctx  = &server_ctx
-};
+    .user_ctx = &server_ctx};
 static const httpd_uri_t add_schedule = {
-     /* queries, room, time start-end */
-     .uri       = "/add_schedule",
-    .method    = HTTP_GET,
-    .handler   = add_schedule_handler,
+    /* queries, room, time start-end */
+    .uri = "/add_schedule",
+    .method = HTTP_GET,
+    .handler = add_schedule_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
-    .user_ctx  = &server_ctx
-};
+    .user_ctx = &server_ctx};
 static const httpd_uri_t remove_schedule = {
     /* queries, index */
-    .uri       = "/remove_schedule",
-    .method    = HTTP_GET,
-    .handler   = remove_schedule_handler,
+    .uri = "/remove_schedule",
+    .method = HTTP_GET,
+    .handler = remove_schedule_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
-    .user_ctx  = &server_ctx
-};
-
-
+    .user_ctx = &server_ctx};
 
 /* An HTTP GET handler */
 static esp_err_t root_handler(httpd_req_t *req) {
   char *buf;
   size_t buf_len;
 
+  httpd_resp_send(req, root_html_start, root_html_end - root_html_start);
+  httpd_resp_send_chunk(req, NULL, 0);
+#if 0
   /* Get header value string length and allocate memory for length + 1,
    * extra byte for null termination */
   buf_len = httpd_req_get_hdr_value_len(req, "Host") + 1;
@@ -196,9 +193,16 @@ static esp_err_t root_handler(httpd_req_t *req) {
   if (httpd_req_get_hdr_value_len(req, "Host") == 0) {
     ESP_LOGI(TAG, "Request headers lost");
   }
+#endif
   return ESP_OK;
 }
 
+static esp_err_t body_js_handler(httpd_req_t *req) {
+  httpd_resp_set_type(req, "text/javascript");
+  httpd_resp_send(req, body_js_start, body_js_end - body_js_start);
+  httpd_resp_send_chunk(req, NULL, 0);
+  return ESP_OK;
+}
 
 /* An HTTP POST handler */
 static esp_err_t echo_post_handler(httpd_req_t *req) {
@@ -230,6 +234,8 @@ static esp_err_t echo_post_handler(httpd_req_t *req) {
   return ESP_OK;
 }
 
+#if 0
+
 static const httpd_uri_t echo = {.uri = "/echo",
                                  .method = HTTP_POST,
                                  .handler = echo_post_handler,
@@ -253,6 +259,7 @@ static const httpd_uri_t any = {.uri = "/any",
                                 /* Let's pass response string in user
                                  * context to demonstrate it's usage */
                                 .user_ctx = "Hello World!"};
+#endif
 
 /* This handler allows the custom error handling functionality to be
  * tested from client side. For that, when a PUT request 0 is sent to
@@ -281,12 +288,10 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err) {
   return ESP_FAIL;
 }
 
-
 static const httpd_uri_t ctrl = {.uri = "/ctrl",
                                  .method = HTTP_PUT,
                                  .handler = ctrl_put_handler,
                                  .user_ctx = NULL};
-
 
 static httpd_handle_t start_webserver(void) {
   httpd_handle_t server = NULL;
