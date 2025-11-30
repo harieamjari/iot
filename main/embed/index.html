@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta name="viewport" content="with=device-width, initial-scale=1">
+		<link rel="icon" href="data:,">
+		<title> ESP32 Smart Home IoT</title>
+		<style>
+			body, html {
+				height: 100%;
+				margin: 0;
+				font-family: Arial;
+			}
+			.tablink {
+				background-color: #555;
+				color: white;
+				float: left;
+				border: none;
+				outline: none;
+				cursor: pointer;
+				padding: 14px 16px;
+				font-size: 12px;
+				display: inline-block;
+				width: calc(100% / 5);
+				box-sizing: border-box;
+			}
+			.tablink:hover {background-color: #777}
+			.tabcontent {
+				/* color: white; */
+				display: block;
+				height: 100%;
+			}
+		</style>
+	</head>
+	<body>
+		<button class="tablink" onclick="openPage('Status', this)" id="statusTab">Status</button>
+		<button class="tablink" onclick="openPage('Lighting', this)" id="lightingTab">Lighting</button>
+		<button class="tablink" onclick="openPage('Logs', this)">Logs</button>
+		<button class="tablink" onclick="openPage('Settings', this)">Settings</button>
+		<button class="tablink" onclick="openPage('About', this)">About </button>
+
+		<div id="Status" class="tabcontent">
+			<h3>Status</h3>
+				<table style="width:100%">
+					<tr>
+						<td>Time</td>
+						<td id="time"> 11:12PM  </td>
+					</tr>
+					<tr>
+						<td>Battery</td>
+						<td> 80% </td>
+					</tr>
+					<tr>
+						<td>Solar panel</td>
+						<td> 3.3v </td>
+					</tr>
+				</table>
+		</div>
+		<div id="Lighting" class="tabcontent">
+			<h3>First floor</h3>
+				<table style="width:100%">
+					<tr>
+						<td>Living room</td>
+						<td><input type="checkbox" onclick="onClick(this)" id="lRoom" checked="true"></td>
+					</tr>
+					<tr>
+						<td>Family room</td>
+						<td><input type="checkbox" onclick="onClick(this)" id="fRoom" checked="true"></td>
+					</tr>
+					<tr>
+						<td>Dining room</td>
+						<td><input type="checkbox" onclick="onClick(this)" id="dRoom" checked="true"></td>
+					</tr>
+					<tr>
+						<td>Bathroom</td>
+						<td><input type="checkbox" onclick="onClick(this)" id="bRoom" checked="true"></td>
+					</tr>
+				</table>
+			<h3>Second floor</h3>
+				<table style="width:100%">
+					<tr>
+						<td>Attic</td>
+						<td><input type="checkbox" onclick="onClick(this)" id="aRoom" checked="true"></td>
+					</tr>
+				</table>
+			<h3>Schedule</h3>
+				<h4> Add a schedule to turn on the lights </h4>
+				<form action="/add_schedule" method="get">
+					<label for="dl_room"> Room </label> 
+					<select id="dl_room" name="rooms">
+						<option value="lroom">Living room</option>
+						<option value="froom">Family room</option>
+						<option value="droom">Dining room</option>
+					</select>
+					<br>
+					<label for="dl_start"> Start time </label> 
+					<input id="dl_start" name="dl_start" type="time" size="6" required>
+					<br>
+					<label for="dl_end"> End time </label> 
+					<input id="dl_end" name="dl_end" type="time" size="6" required>
+					<br>
+					<input type="submit" value="Add">
+				</form>
+				<h4>Registered schedules</h4>
+				<table id="schedTab" style="width:100%">
+				</table>
+
+		</div>
+		<div id="Settings" class="tabcontent">
+			<h3>Settings</h3>
+				<h4>Date and time</h4>
+				
+				<table style="width:100%">
+					<tr>
+						<td><input id="currentDateTime" type="time-local"></td>
+						<td><button onclick="onChange(this)">Change</button></td>
+					</tr>
+				</table>
+		</div>
+		<div id="Logs" class="tabcontent">
+			<code id="logs">
+				fatal: unaligned memory access
+			</code>
+		</div>
+		<div id="About" class="tabcontent">
+			<span> The sources from which this HTTP web server was built were transformed beyond human comprehension. </span>
+			<br>
+			<span> ~ Amjari, Musa, Nuddin </span>
+		</div>
+		<script src="body.js"></script>
+
+	</body>
+</html>
