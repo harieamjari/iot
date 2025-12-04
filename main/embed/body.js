@@ -10,16 +10,23 @@ function onClick(elmnt) {
 }
 function onChange(elmnt) { alert(elmnt.id + " was changed"); }
 function updateStatus(elmnt) {}
-fetch('/status').then(response => {
-  document.getElementById("status_table").innerHTML = response;
-});
+fetch('/status_table').then(response => {
+  if (!response.ok) {
+    throw new Error('http error');
+  }
+  return response.text();
+}).then(data => {
+  //document.getElementById("status_table").innerHTML = data;
+}).catch(e => {alert("could not fetch status");});
 
-const url_params = new URLSearchParams(window.location.search);
-const tab_param_value = url_params.get('tab');
-if (tab_param_value === null)
-  document.getElementById("status_tab").click();
-else if (tab_param_value === 'lighting') {
-  document.getElementById("lighting_tab").click();
+if (window.location.pathname === '/') {
+  const url_params = new URLSearchParams(window.location.search);
+  const tab_param_value = url_params.get('tab');
+  if (tab_param_value === null)
+    document.getElementById("status_tab").click();
+  else if (tab_param_value === 'lighting') {
+    document.getElementById("lighting_tab").click();
+  }
 }
 
 var date = new Date();
