@@ -39,6 +39,7 @@ static const char *TAG = "main";
  */
 
 #define MAX_SCHEDULES 24
+#define MAX_TRIES 10
 
 typedef struct schedule_t schedule_t;
 struct schedule_t {
@@ -110,17 +111,36 @@ static const httpd_uri_t remove_schedule = {
     .user_ctx = &server_ctx};
 
 /* An HTTP GET handler */
+static void format_table_str(char *buf, int len, char *name, char *value) {
+  snprintf(buf, len, "<tr><td>%s</td><td>%s</td></tr>", name, value);
+}
+static void format_table_int(char *buf, int len, char *name, int value) {
+  snprintf(buf, len, "<tr><td>%s</td><td>%d</td></tr>", name, value);
+}
+static void format_table_u32(char *buf, int len, char *name, uint32_t value) {
+  snprintf(buf, len, "<tr><td>%s</td><td>%"PRIu32"</td></tr>", name, value);
+}
+
 static esp_err_t status_handler(httpd_req_t *req) {
   esp_chip_info_t chip_info;
   uint32_t flash_size;
   esp_chip_info(&chip_info);
   char buf[256];
-  snprintf(buf, 256, "<tr><td>Target</td><td>%s</td></tr>", CONFIG_IDF_TARGET);
+  format_table_str(buf, sizeof(buf), "Target", CONFIG_IDF_TARGET);
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
-  snprintf(buf, 256, "<tr><td>Cores</td><td>%d</td></tr>", chip_info.cores);
+  format_table_int(buf, sizeof(buf), "Cores", chip_info.cores);
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
-  httpd_resp_send_chunk(req, NULL, 0);
+  if (esp_flash_get_size(NULL, &flash_size) == ESP_OK) {
+    format_table_u32(buf, sizeof(buf), "Flash size", flash_size);
+    httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  }
+  format_table_str(buf, sizeof(buf) , "Flash size location", chip_info.features & CHIP_CHEATURE_EMB_FLASH ? "embedded" : "external");
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+
+  format_table_u32(buf, sizeof(buf), "Flash size", esp_get_minimum_free_heap_size());
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
   
+  httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK; 
 }
 static esp_err_t root_handler(httpd_req_t *req) {
@@ -220,12 +240,60 @@ static esp_err_t root_handler(httpd_req_t *req) {
   return ESP_OK;
 }
 
+static int read_buf(httpd_req_t *req, char buf, size_t len) {
+  int ret;
+  int tries = 0, read = 0;
+  if (req->content_len > 255)
+    return ESP_FAIL;
+
+  while (read < req->content_len) {
+    /* Read the data for the request */
+    if ((ret = httpd_req_recv(req, buf + read, lean - read)) <= 0) {
+      if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+        /* Retry receiving if timeout occurred */
+	tries++;
+	if (tries < MAX_TRIES)
+          continue;
+      }
+      ESP_LOGI(TAG, "failed to read req %p\n", (void*)req);
+      return -1;
+    }
+
+    /* Send back the same data */
+    httpd_resp_send_chunk(req, buf, ret);
+    read += ret;
+
+  }
+  return read;
+}
+
 static esp_err_t add_schedule_handler(httpd_req_t *req) {
-  httpd_resp_send(req, "ok add", 6);
+  int len;
+  char buf[256] = {0};
+  if ((len = read_buf(req, buf, sizeof(buf))) < 0)
+    return ESP_FAIL;
+  /* Log data received */
+  ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
+  ESP_LOGI(TAG, "%.*s", ret, buf);
+  ESP_LOGI(TAG, "====================================");
+  httpd_resp_set_status(req, "201 Created");
+  httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
+  httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
+
 static esp_err_t remove_schedule_handler(httpd_req_t *req) {
-  httpd_resp_send(req, "ok rem", 6);
+  int len;
+  char buf[256] = {0};
+  if ((len = read_buf(req, buf, sizeof(buf))) < 0)
+    return ESP_FAIL;
+  ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
+  ESP_LOGI(TAG, "%.*s", ret, buf);
+  ESP_LOGI(TAG, "====================================");
+
+  httpd_resp_set_status(req, "201 Created");
+  httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
+  httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
 

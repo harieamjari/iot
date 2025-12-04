@@ -10,14 +10,18 @@ function onClick(elmnt) {
 }
 function onChange(elmnt) { alert(elmnt.id + " was changed"); }
 function updateStatus(elmnt) {}
-var t = document.getElementById("status_table");
-t.innerHTML += `
-	<tr>
-		<td> Tests </td>
-		<td> sasa </td>
-	</tr>
-`;
-document.getElementById("statusTab").click();
+fetch('/status').then(response => {
+  document.getElementById("status_table").innerHTML = response;
+});
+
+const url_params = new URLSearchParams(window.location.search);
+const tab_param_value = url_params.get('tab');
+if (tab_param_value === null)
+  document.getElementById("status_tab").click();
+else if (tab_param_value === 'lighting') {
+  document.getElementById("lighting_tab").click();
+}
+
 var date = new Date();
 document.getElementById("currentTime").value = date.getFullYear() + "-" +
                                                (date.getMonth() + 1) +
