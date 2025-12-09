@@ -16,8 +16,8 @@ fetch('/status_table').then(response => {
   }
   return response.text();
 }).then(data => {
-  //document.getElementById("status_table").innerHTML = data;
-}).catch(e => {alert("could not fetch status");});
+  document.getElementById("status_table").innerHTML = data;
+}).catch(e => {alert("could not fetch status_table");});
 
 if (window.location.pathname === '/') {
   const url_params = new URLSearchParams(window.location.search);

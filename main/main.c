@@ -66,7 +66,7 @@ static esp_err_t root_handler(httpd_req_t *req);
 
 static esp_err_t add_schedule_handler(httpd_req_t *req);
 static esp_err_t remove_schedule_handler(httpd_req_t *req);
-static esp_err_t status_handler(httpd_req_t *req);
+static esp_err_t status_table_handler(httpd_req_t *req);
 static esp_err_t body_js_handler(httpd_req_t *req);
 
 static const httpd_uri_t root = {
@@ -77,11 +77,11 @@ static const httpd_uri_t root = {
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = &server_ctx};
-static const httpd_uri_t status = {
+static const httpd_uri_t status_table = {
     /* queries, room, time start-end */
-    .uri = "/status",
+    .uri = "/status_table",
     .method = HTTP_GET,
-    .handler = status_handler,
+    .handler = status_table_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = NULL};
@@ -121,7 +121,7 @@ static void format_table_u32(char *buf, int len, char *name, uint32_t value) {
   snprintf(buf, len, "<tr><td>%s</td><td>%"PRIu32"</td></tr>", name, value);
 }
 
-static esp_err_t status_handler(httpd_req_t *req) {
+static esp_err_t status_table_handler(httpd_req_t *req) {
   esp_chip_info_t chip_info;
   uint32_t flash_size;
   esp_chip_info(&chip_info);
@@ -406,7 +406,7 @@ static httpd_handle_t start_webserver(void) {
     ESP_LOGI(TAG, "Registering URI handlers");
     httpd_register_uri_handler(server, &root);
     httpd_register_uri_handler(server, &body_js);
-    httpd_register_uri_handler(server, &status);
+    httpd_register_uri_handler(server, &status_table);
     httpd_register_uri_handler(server, &add_schedule);
     httpd_register_uri_handler(server, &remove_schedule);
     ESP_LOGI(TAG, "Ok");
