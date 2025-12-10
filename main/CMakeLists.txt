@@ -7,7 +7,7 @@ else()
     list(APPEND requires esp_wifi esp_eth spi_flash esp_driver_gpio esp_adc)
 endif()
 
-idf_component_register(SRCS "main.c" "wifi.c" "voltage.c"
+idf_component_register(SRCS "main.c" "wifi.c" "adc.c"
                     INCLUDE_DIRS "."
 		    PRIV_REQUIRES ${requires}
                     EMBED_TXTFILES embed/index.html embed/body.js)

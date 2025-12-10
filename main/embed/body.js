@@ -29,25 +29,6 @@ function update_checkbox(id) {
     document.getElementById('gpio' + id).checked = data == '0' ? false : true;
   }).catch(e => {alert("could not fetch " + id);});
 }
-function update_ids() {
-  update_id('status_table');
-  update_id('schedule_table');
-
-//						<td><input type="checkbox" onclick="gpio_switch(this, '25')" id="lroom" checked="true"></td>
-//					</tr>
-//					<tr>
-//						<td>Family room</td>
-//						<td><input type="checkbox" onclick="gpio_switch(this, '26')" id="froom" checked="true"></td>
-//					</tr>
-//					<tr>
-//						<td>Dining room</td>
-//						<td><input type="checkbox" onclick="gpio_switch(this, '27')" id="droom" checked="true"></td>
-//					</tr>
-//					<tr>
-//						<td>Bathroom</td>
-//						<td><input type="checkbox" onclick="gpio_switch(this, '33')" id="broom" checked="true"></td>
-//  
-}
 function gpio_switch(elmnt, pin) {
   const v = document.getElementById("gpio" + pin).checked === false ? 'off' : 'on';
   const data = {gpio: pin, value: v};
@@ -55,8 +36,15 @@ function gpio_switch(elmnt, pin) {
     .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(data[key]))
     .join('&');
   fetch('/gpio', {method: 'POST', body: edata});
-    //.then(data => {document.getElementById("gpio" + pin).checked = (v === 'true' ? 'false' : 'true');});
-  //location.reload();
+}
+function update_datetime(elmnt) {
+  var e = document.getElementById("setting_datetime");
+  const data = {datetime: e.value};
+  const edata = Object.keys(data)
+    .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(data[key]))
+    .join('&');
+  fetch('/update_datetime', {method: 'POST', body: edata});
+
 }
 if (window.location.pathname === '/') {
   const url_params = new URLSearchParams(window.location.search);
@@ -67,16 +55,12 @@ if (window.location.pathname === '/') {
     document.getElementById("lighting_tab").click();
   }
 }
-update_ids();
+setInterval(update_id, 1000, 'status_table');
+update_id('schedule_table');
 update_checkbox('25');
 update_checkbox('26');
 update_checkbox('27');
 update_checkbox('33');
-
-var date = new Date();
-document.getElementById("currentTime").value = date.getFullYear() + "-" +
-                                               (date.getMonth() + 1) +
-                                               "-" + date.getDate() +
-                                               " " + date.getHours() +
-                                               ":" + date.getMinutes() +
-                                               ":" + date.getSeconds();
+// attics
+update_checkbox('22');
+update_checkbox('23');

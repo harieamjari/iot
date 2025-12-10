@@ -15,7 +15,6 @@
 #include "esp_flash.h"
 #include "esp_chip_info.h"
 #include "driver/gpio.h"
-#include "driver/adc.h"
 #include <esp_http_server.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
@@ -31,6 +30,7 @@
 #include <esp_system.h>
 #include <esp_wifi.h>
 #endif // !CONFIG_IDF_TARGET_LINUX
+#include "server.h"
 
 #define EXAMPLE_HTTP_QUERY_KEY_MAX_LEN (64)
 static const char *TAG = "main";
@@ -39,25 +39,16 @@ static const char *TAG = "main";
  * handlers for the web server.
  */
 
-#define MAX_SCHEDULES 24
 #define MAX_TRIES 10
 #define GGPIO(X) (1ULL << GPIO_NUM_##X)
 
-typedef struct schedule_t schedule_t;
-struct schedule_t {
-  int room;
-  uint32_t start, end;
-};
-typedef struct server_ctx_t server_ctx_t;
-struct server_ctx_t {
-  int nb_schedules;
-  schedule_t schedules[MAX_SCHEDULES];
-  char pins_level[38];
-};
 
 static server_ctx_t server_ctx = {0};
 
 extern void wifi_init_softap(void);
+extern void adc_iot_init(server_ctx_t *);
+extern void adc_iot_deinit(server_ctx_t *);
+extern void adc_iot_read(server_ctx_t *);
 /* embedded files */
 extern const char root_html_start[] asm("_binary_index_html_start");
 extern const char root_html_end[] asm("_binary_index_html_end");
@@ -74,6 +65,7 @@ static esp_err_t schedule_table_handler(httpd_req_t *req);
 static esp_err_t body_js_handler(httpd_req_t *req);
 static esp_err_t gpio_handler(httpd_req_t *req);
 static esp_err_t gpio_level_handler(httpd_req_t *req);
+static esp_err_t update_time_handler(httpd_req_t *req);
 
 static const httpd_uri_t root = {
     /* queries, room, time start-end */
@@ -88,6 +80,14 @@ static const httpd_uri_t gpio = {
     .uri = "/gpio",
     .method = HTTP_POST,
     .handler = gpio_handler,
+    /* Let's pass response string in user
+     * context to demonstrate it's usage */
+    .user_ctx = &server_ctx};
+static const httpd_uri_t update_time = {
+    /* queries, room, time start-end */
+    .uri = "/update_time",
+    .method = HTTP_POST,
+    .handler = update_time_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = &server_ctx};
@@ -159,11 +159,24 @@ static void format_table_u32(char *buf, int len, char *name, uint32_t value) {
 //  return voltage;
 //    
 //}
+static void format_time(char *buf, size_t size) {
+  time_t now;
+  struct tm timeinfo;
+
+  time(&now);
+
+  localtime_r(&now, &timeinfo);
+  strftime(buf, size, "%Y-%m-%d %H:%M:%S", &timeinfo);
+}
 static esp_err_t status_table_handler(httpd_req_t *req) {
   esp_chip_info_t chip_info;
   uint32_t flash_size;
   esp_chip_info(&chip_info);
-  char buf[256];
+  char buf[256], time[64];
+  format_time(time, sizeof(time));
+  format_table_str(buf, sizeof(buf), "Time", time);
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+
   format_table_str(buf, sizeof(buf), "Target", CONFIG_IDF_TARGET);
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
   format_table_int(buf, sizeof(buf), "Cores", chip_info.cores);
@@ -175,17 +188,18 @@ static esp_err_t status_table_handler(httpd_req_t *req) {
   format_table_str(buf, sizeof(buf) , "Flash size location", chip_info.features & CHIP_FEATURE_EMB_FLASH ? "embedded" : "external");
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 
-  format_table_u32(buf, sizeof(buf), "Flash size", esp_get_minimum_free_heap_size());
+  format_table_u32(buf, sizeof(buf), "Free heap size", esp_get_minimum_free_heap_size());
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 
-//  format_table_u32(buf, sizeof(buf), "Battery voltage divider (normal 1650 mV)", read_voltage(ADC1_CHANNEL_4));
-//  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  adc_iot_read(&server_ctx);
+  format_table_int(buf, sizeof(buf), "Battery voltage divider (normal 1650 mV)", server_ctx.voltage6);
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 //
-//  format_table_u32(buf, sizeof(buf), "LDR 1 voltage (mV)", read_voltage(ADC1_CHANNEL_6));
-//  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
-//
-//  format_table_u32(buf, sizeof(buf), "LDR 2 voltage (mV)", read_voltage(ADC1_CHANNEL_7));
-//  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  format_table_int(buf, sizeof(buf), "LDR 1 voltage (mV)", server_ctx.voltage7);
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+
+  format_table_int(buf, sizeof(buf), "LDR 2 voltage (mV)", server_ctx.voltage4);
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
   
   httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK; 
@@ -215,99 +229,9 @@ static esp_err_t schedule_table_handler(httpd_req_t *req) {
 }
 
 static esp_err_t root_handler(httpd_req_t *req) {
-  char *buf;
-  size_t buf_len;
-
   httpd_resp_set_hdr(req, "Connection", "close");
   httpd_resp_send(req, root_html_start, HTTPD_RESP_USE_STRLEN);
   httpd_resp_send_chunk(req, NULL, 0);
-#if 0
-  /* Get header value string length and allocate memory for length + 1,
-   * extra byte for null termination */
-  buf_len = httpd_req_get_hdr_value_len(req, "Host") + 1;
-  if (buf_len > 1) {
-    buf = malloc(buf_len);
-    ESP_RETURN_ON_FALSE(buf, ESP_ERR_NO_MEM, TAG, "buffer alloc failed");
-    /* Copy null terminated value string into buffer */
-    if (httpd_req_get_hdr_value_str(req, "Host", buf, buf_len) == ESP_OK) {
-      ESP_LOGI(TAG, "Found header => Host: %s", buf);
-    }
-    free(buf);
-  }
-
-  buf_len = httpd_req_get_hdr_value_len(req, "Test-Header-2") + 1;
-  if (buf_len > 1) {
-    buf = malloc(buf_len);
-    ESP_RETURN_ON_FALSE(buf, ESP_ERR_NO_MEM, TAG, "buffer alloc failed");
-    if (httpd_req_get_hdr_value_str(req, "Test-Header-2", buf, buf_len) ==
-        ESP_OK) {
-      ESP_LOGI(TAG, "Found header => Test-Header-2: %s", buf);
-    }
-    free(buf);
-  }
-
-  buf_len = httpd_req_get_hdr_value_len(req, "Test-Header-1") + 1;
-  if (buf_len > 1) {
-    buf = malloc(buf_len);
-    ESP_RETURN_ON_FALSE(buf, ESP_ERR_NO_MEM, TAG, "buffer alloc failed");
-    if (httpd_req_get_hdr_value_str(req, "Test-Header-1", buf, buf_len) ==
-        ESP_OK) {
-      ESP_LOGI(TAG, "Found header => Test-Header-1: %s", buf);
-    }
-    free(buf);
-  }
-
-  /* Read URL query string length and allocate memory for length + 1,
-   * extra byte for null termination */
-  buf_len = httpd_req_get_url_query_len(req) + 1;
-  if (buf_len > 1) {
-    buf = malloc(buf_len);
-    ESP_RETURN_ON_FALSE(buf, ESP_ERR_NO_MEM, TAG, "buffer alloc failed");
-    if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-      ESP_LOGI(TAG, "Found URL query => %s", buf);
-      char param[EXAMPLE_HTTP_QUERY_KEY_MAX_LEN],
-          dec_param[EXAMPLE_HTTP_QUERY_KEY_MAX_LEN] = {0};
-      /* Get value of expected key from query string */
-      if (httpd_query_key_value(buf, "query1", param, sizeof(param)) ==
-          ESP_OK) {
-        ESP_LOGI(TAG, "Found URL query parameter => query1=%s", param);
-        example_uri_decode(dec_param, param,
-                           strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-        ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-      }
-      if (httpd_query_key_value(buf, "query3", param, sizeof(param)) ==
-          ESP_OK) {
-        ESP_LOGI(TAG, "Found URL query parameter => query3=%s", param);
-        example_uri_decode(dec_param, param,
-                           strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-        ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-      }
-      if (httpd_query_key_value(buf, "query2", param, sizeof(param)) ==
-          ESP_OK) {
-        ESP_LOGI(TAG, "Found URL query parameter => query2=%s", param);
-        example_uri_decode(dec_param, param,
-                           strnlen(param, EXAMPLE_HTTP_QUERY_KEY_MAX_LEN));
-        ESP_LOGI(TAG, "Decoded query parameter => %s", dec_param);
-      }
-    }
-    free(buf);
-  }
-
-  /* Set some custom headers */
-  httpd_resp_set_hdr(req, "Custom-Header-1", "Custom-Value-1");
-  httpd_resp_set_hdr(req, "Custom-Header-2", "Custom-Value-2");
-
-  /* Send response with custom headers and body set as the
-   * string passed in user context*/
-  const char *resp_str = (const char *)req->user_ctx;
-  httpd_resp_send(req, resp_str, HTTPD_RESP_USE_STRLEN);
-
-  /* After sending the HTTP response the old HTTP request
-   * headers are lost. Check if HTTP request headers can be read now. */
-  if (httpd_req_get_hdr_value_len(req, "Host") == 0) {
-    ESP_LOGI(TAG, "Request headers lost");
-  }
-#endif
   return ESP_OK;
 }
 
@@ -432,6 +356,24 @@ static esp_err_t gpio_handler(httpd_req_t *req) {
       return ESP_OK;
     }
   }
+err:
+  return ESP_FAIL;
+}
+static esp_err_t update_time_handler(httpd_req_t *req) {
+  int len;
+  char buf[64] = {0}, val[64];
+  if ((len = read_buf(req, buf, sizeof(buf))) < 0)
+    return ESP_FAIL;
+  struct tm date_time = {0};
+  date_time.tm_year = 2025 - 1900;
+  date_time.tm_mon = 11;
+  date_time.tm_mday = 12;
+  date_time.tm_hour = 11;
+  date_time.tm_min = 14;
+  date_time.tm_sec = 0;
+  time_t epoch = mktime(&date_time);
+  settimeofday(&(const struct timeval){epoch, 0}, NULL);
+  if (1) goto err;
 err:
   return ESP_FAIL;
 }
@@ -561,6 +503,7 @@ static httpd_handle_t start_webserver(void) {
     httpd_register_uri_handler(server, &root);
     httpd_register_uri_handler(server, &body_js);
     httpd_register_uri_handler(server, &status_table);
+    httpd_register_uri_handler(server, &update_time);
     httpd_register_uri_handler(server, &schedule_table);
     httpd_register_uri_handler(server, &add_schedule);
     httpd_register_uri_handler(server, &remove_schedule);
@@ -600,6 +543,25 @@ static void connect_handler(void *arg, esp_event_base_t event_base,
   }
 }
 
+static void gpio_conf(){
+  gpio_config_t io_conf_output = {
+      .pin_bit_mask = (GGPIO(22) | GGPIO(23) | GGPIO(25) | GGPIO(26) | GGPIO(27) | GGPIO(33)),
+      .mode = GPIO_MODE_OUTPUT,                 // Set as output
+      .pull_up_en = GPIO_PULLUP_DISABLE,        // Disable internal pull-up
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,    // Disable internal pull-down
+      .intr_type = GPIO_INTR_DISABLE            // Disable interrupts
+  };
+  gpio_config(&io_conf_output);
+  gpio_config_t io_conf_input = {
+      .pin_bit_mask = (GGPIO(32) | GGPIO(34) | GGPIO(35)),
+      .mode = GPIO_MODE_INPUT,                 // Set as output
+      .pull_up_en = GPIO_PULLUP_DISABLE,        // Disable internal pull-up
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,    // Disable internal pull-down
+      .intr_type = GPIO_INTR_DISABLE            // Disable interrupts
+  };
+  gpio_config(&io_conf_input);
+}
+
 void app_main(void) {
   memset(&server_ctx, 0, sizeof(server_ctx));
   httpd_handle_t server;
@@ -620,22 +582,9 @@ void app_main(void) {
   ESP_ERROR_CHECK(esp_event_handler_register(
       WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, &server));
   /* init gpio pins */
-  gpio_config_t io_conf_output = {
-      .pin_bit_mask = (GGPIO(22) | GGPIO(23) | GGPIO(25) | GGPIO(26) | GGPIO(27) | GGPIO(33)),
-      .mode = GPIO_MODE_OUTPUT,                 // Set as output
-      .pull_up_en = GPIO_PULLUP_DISABLE,        // Disable internal pull-up
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,    // Disable internal pull-down
-      .intr_type = GPIO_INTR_DISABLE            // Disable interrupts
-  };
-  gpio_config(&io_conf_output);
-  gpio_config_t io_conf_input = {
-      .pin_bit_mask = (GGPIO(32) | GGPIO(34) | GGPIO(35)),
-      .mode = GPIO_MODE_INPUT,                 // Set as output
-      .pull_up_en = GPIO_PULLUP_DISABLE,        // Disable internal pull-up
-      .pull_down_en = GPIO_PULLDOWN_DISABLE,    // Disable internal pull-down
-      .intr_type = GPIO_INTR_DISABLE            // Disable interrupts
-  };
-  gpio_config(&io_conf_input);
+  gpio_conf();
+  adc_iot_init(&server_ctx);
+
 
 
   //gpio_set_level(GPIO_NUM_25, 1);
@@ -645,4 +594,5 @@ void app_main(void) {
   while (server) {
     sleep(5);
   }
+  adc_iot_deinit(&server_ctx);
 }
