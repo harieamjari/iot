@@ -1,0 +1,96 @@
+\documentclass[12pt, a4paper]{article}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows, positioning}
+\usepackage{hyperref}
+\usepackage{geometry}
+
+\geometry{
+ a4paper,
+ total={170mm,257mm},
+ left=20mm,
+ top=20mm,
+}
+
+\title{\textbf{System Architecture for IoT Project}}
+\author{Draft for harieamjari/iot}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document outlines the system architecture for the Internet of Things (IoT) project. The system is designed to facilitate real-time data monitoring and control between physical sensing nodes and a centralized cloud interface. The architecture is divided into three primary layers: the Perception Layer (Edge), the Network Layer, and the Application Layer.
+\end{abstract}
+
+\section{System Overview}
+The proposed system integrates embedded microcontrollers with environmental sensors to collect data. This data is transmitted wirelessly to a central server where it is processed, stored, and visualized for the end-user.
+
+\section{Architectural Layers}
+
+\subsection{1. Sensing layer}
+At the lowest level, the system measure voltage across different sensors,
+which in turns, turns into data. The data collected are from 2 LDRs (Light
+Dependent Resistors), and from the level of battery is fed into a voltage
+divider.
+
+\begin{itemize}
+	\item \textbf{LDR 5549 (45K - 140K Ohm)}: An LDR is connected in series with 100k ohm
+resistor. the other end of the LDR is connected to 3.3V while the other end of the resistor
+is connected to GND, forming a voltage divider that takes in very little r current. Voltage
+level is read in the middle.
+    \item \textbf{Battery voltage detection}: Same as before, two 100K ohm is connected in series and voltage in between is read.
+\end{itemize}
+
+\subsection{2. Network Layer}
+This layer handles the transmission of data between the edge devices and the cloud server.
+\begin{itemize}
+    \item \textbf{Gateway}: The ESP 32 built in Wi-Fi module opens up a WiFi access point
+for users to connect to and control. The MCU, could also be program to connect to already existing
+WiFi access point of creating a new one to allow users flexibility in controlling the MCU
+		in their home WiFi.
+ 
+\end{itemize}
+
+\subsection{3. Data processing layer}
+This layers handles the processing of data collected from the sensors. 
+
+The ESP32 currently does all of the processing of the data collected. It has
+been programmed in C manually to perform the task of switching leds and
+reacting to HTTP POST request from users.
+\subsection{4. Application layer}
+This layer is what is actually exposed to the user.
+
+The ESP32 exposes a very simple API that allows users to see which lights are
+actives. It also allows users to turn on/off light over the web interface and 
+even add a schedule to automatically turn on/off a light at specific time.
+
+\section{System Diagram}
+
+%\begin{figure}[h]
+%\centering
+%\begin{tikzpicture}[node distance=2cm]
+%
+%% Nodes
+%\node (sensor) [rectangle, rounded corners, minimum width=3cm, minimum height=1cm, text centered, draw=black, fill=blue!10] {Sensors \& Actuators};
+%\node (mcu) [rectangle, rounded corners, minimum width=3cm, minimum height=1cm, text centered, draw=black, fill=green!10, below of=sensor] {Microcontroller (ESP32/8266)};
+%\node (network) [cloud, draw,blue, fill=white, aspect=2, below of=mcu] {Internet / MQTT Broker};
+%\node (server) [rectangle, rounded corners, minimum width=3cm, minimum height=1cm, text centered, draw=black, fill=orange!10, below of=network] {Cloud Server \& Database};
+%\node (user) [rectangle, rounded corners, minimum width=3cm, minimum height=1cm, text centered, draw=black, fill=red!10, below of=server] {User Dashboard (Web/App)};
+%
+%% Arrows
+%\draw [thick, ->] (sensor) -- (mcu);
+%\draw [thick, <->] (mcu) -- node[anchor=west] {Wi-Fi / MQTT} (network);
+%\draw [thick, <->] (network) -- (server);
+%\draw [thick, <->] (server) -- (user);
+%
+%\end{tikzpicture}
+%\caption{High-Level IoT System Architecture}
+%\label{fig:arch}
+%\end{figure}
+%
+%\section{Conclusion}
+%The described architecture ensures scalability and low-latency communication. By decoupling the sensing logic from the data visualization, the system allows for easy addition of new sensor nodes without significant reconfiguration of the backend infrastructure.
+%
+\end{document}

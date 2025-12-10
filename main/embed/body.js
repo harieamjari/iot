@@ -44,7 +44,7 @@ function update_datetime(elmnt) {
     .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(data[key]))
     .join('&');
   fetch('/update_datetime', {method: 'POST', body: edata});
-
+  window.location.reload();
 }
 if (window.location.pathname === '/') {
   const url_params = new URLSearchParams(window.location.search);
@@ -57,6 +57,7 @@ if (window.location.pathname === '/') {
 }
 setInterval(update_id, 1000, 'status_table');
 update_id('schedule_table');
+update_id('quote');
 update_checkbox('25');
 update_checkbox('26');
 update_checkbox('27');

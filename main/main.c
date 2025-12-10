@@ -49,6 +49,7 @@ extern void wifi_init_softap(void);
 extern void adc_iot_init(server_ctx_t *);
 extern void adc_iot_deinit(server_ctx_t *);
 extern void adc_iot_read(server_ctx_t *);
+extern const char *quote_iot_get();
 /* embedded files */
 extern const char root_html_start[] asm("_binary_index_html_start");
 extern const char root_html_end[] asm("_binary_index_html_end");
@@ -65,7 +66,8 @@ static esp_err_t schedule_table_handler(httpd_req_t *req);
 static esp_err_t body_js_handler(httpd_req_t *req);
 static esp_err_t gpio_handler(httpd_req_t *req);
 static esp_err_t gpio_level_handler(httpd_req_t *req);
-static esp_err_t update_time_handler(httpd_req_t *req);
+static esp_err_t quote_handler(httpd_req_t *req);
+static esp_err_t update_datetime_handler(httpd_req_t *req);
 
 static const httpd_uri_t root = {
     /* queries, room, time start-end */
@@ -83,11 +85,19 @@ static const httpd_uri_t gpio = {
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = &server_ctx};
-static const httpd_uri_t update_time = {
+static const httpd_uri_t quote = {
     /* queries, room, time start-end */
-    .uri = "/update_time",
+    .uri = "/quote",
     .method = HTTP_POST,
-    .handler = update_time_handler,
+    .handler = gpio_handler,
+    /* Let's pass response string in user
+     * context to demonstrate it's usage */
+    .user_ctx = &server_ctx};
+static const httpd_uri_t update_datetime = {
+    /* queries, room, time start-end */
+    .uri = "/update_datetime",
+    .method = HTTP_POST,
+    .handler = update_datetime_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = &server_ctx};
@@ -359,11 +369,19 @@ static esp_err_t gpio_handler(httpd_req_t *req) {
 err:
   return ESP_FAIL;
 }
-static esp_err_t update_time_handler(httpd_req_t *req) {
+static esp_err_t quote_handler(httpd_req_t *req) {
+  httpd_resp_send(req, quote_iot_get(), HTTPD_RESP_USE_STRLEN);
+  httpd_resp_send_chunk(req, NULL, 0);
+  return ESP_OK;
+}
+static esp_err_t update_datetime_handler(httpd_req_t *req) {
   int len;
   char buf[64] = {0}, val[64];
   if ((len = read_buf(req, buf, sizeof(buf))) < 0)
     return ESP_FAIL;
+  ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
+  ESP_LOGI(TAG, "%.*s", len, buf);
+  ESP_LOGI(TAG, "====================================");
   struct tm date_time = {0};
   date_time.tm_year = 2025 - 1900;
   date_time.tm_mon = 11;
@@ -503,7 +521,7 @@ static httpd_handle_t start_webserver(void) {
     httpd_register_uri_handler(server, &root);
     httpd_register_uri_handler(server, &body_js);
     httpd_register_uri_handler(server, &status_table);
-    httpd_register_uri_handler(server, &update_time);
+    httpd_register_uri_handler(server, &update_datetime);
     httpd_register_uri_handler(server, &schedule_table);
     httpd_register_uri_handler(server, &add_schedule);
     httpd_register_uri_handler(server, &remove_schedule);

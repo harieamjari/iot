@@ -54,7 +54,11 @@
 						<td> 3.3v </td>
 					</tr>
 				</table>
+			<h4>Quote of the day</h4>
+			<div id="quote">
+			</div>
 		</div>
+
 		<div id="lighting_tab" class="tabcontent">
 			<h3>First floor</h3>
 				<table style="width:100%">
@@ -91,16 +95,22 @@
 				<form action="/add_schedule" method="post">
 					<label for="dl_room"> Room </label> 
 					<select id="dl_room" name="rooms">
-						<option value="lroom">Living room</option>
-						<option value="froom">Family room</option>
-						<option value="droom">Dining room</option>
+						<option value="25">Living room</option>
+						<option value="26">Family room</option>
+						<option value="27">Dining room</option>
+						<option value="33">Bathroom</option>
+						<option value="22">Attic 1</option>
+						<option value="23">Attic 2</option>
 					</select>
 					<br>
-					<label for="dl_start"> Start time </label> 
+					<label for="dl_start"> Time </label> 
 					<input id="dl_start" name="dl_start" type="time" size="6" required>
 					<br>
-					<label for="dl_end"> End time </label> 
-					<input id="dl_end" name="dl_end" type="time" size="6" required>
+					<label for="dl_switch"> Switch </label> 
+					<select id="dl_switch" name="switches">
+						<option value="1">on</option>
+						<option value="0">off</option>
+					</select>
 					<br>
 					<input type="submit" value="Add">
 				</form>
