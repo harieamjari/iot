@@ -15,6 +15,7 @@
 #include "esp_flash.h"
 #include "esp_chip_info.h"
 #include "driver/gpio.h"
+#include "driver/adc.h"
 #include <esp_http_server.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
@@ -149,7 +150,15 @@ static void format_table_int(char *buf, int len, char *name, int value) {
 static void format_table_u32(char *buf, int len, char *name, uint32_t value) {
   snprintf(buf, len, "<tr><td>%s</td><td>%"PRIu32"</td></tr>", name, value);
 }
-
+//uint32_t read_voltage(adc1_channel_t channel){
+//  esp_adc_cal_characteristics_t *adc_chars = calloc(1, sizeof(esp_adc_cal_characteristics_t));
+//  esp_adc_cal_value_t val_type = esp_adc_cal_characterize(unit, atten, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
+//  uint32_t reading =  adc1_get_raw(channel);
+//  uint32_t raw_voltage = esp_adc_cal_raw_to_voltage(reading, adc_chars)
+//  free(adc_chars);
+//  return voltage;
+//    
+//}
 static esp_err_t status_table_handler(httpd_req_t *req) {
   esp_chip_info_t chip_info;
   uint32_t flash_size;
@@ -168,6 +177,15 @@ static esp_err_t status_table_handler(httpd_req_t *req) {
 
   format_table_u32(buf, sizeof(buf), "Flash size", esp_get_minimum_free_heap_size());
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+
+//  format_table_u32(buf, sizeof(buf), "Battery voltage divider (normal 1650 mV)", read_voltage(ADC1_CHANNEL_4));
+//  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+//
+//  format_table_u32(buf, sizeof(buf), "LDR 1 voltage (mV)", read_voltage(ADC1_CHANNEL_6));
+//  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+//
+//  format_table_u32(buf, sizeof(buf), "LDR 2 voltage (mV)", read_voltage(ADC1_CHANNEL_7));
+//  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
   
   httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK; 
