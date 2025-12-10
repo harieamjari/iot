@@ -9,15 +9,19 @@ function onClick(elmnt) {
   alert("new value " + elmnt.checked + " " + elmnt.id);
 }
 function onChange(elmnt) { alert(elmnt.id + " was changed"); }
-function update_status() {
-  fetch('/status_table').then(response => {
+function update_id(id) {
+  fetch('/' + id).then(response => {
     if (!response.ok) {
       throw new Error('http error');
     }
     return response.text();
   }).then(data => {
-    document.getElementById("status_table").innerHTML = data;
-  }).catch(e => {alert("could not fetch status_table");});
+    document.getElementById(id).innerHTML = data;
+  }).catch(e => {alert("could not fetch " + id);});
+}
+function update_ids() {
+  update_id('status_table');
+  update_id('schedule_table');
   
 }
 function gpio_switch(elmnt, pin, v) {

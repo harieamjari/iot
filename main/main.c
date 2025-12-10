@@ -68,6 +68,7 @@ static esp_err_t root_handler(httpd_req_t *req);
 static esp_err_t add_schedule_handler(httpd_req_t *req);
 static esp_err_t remove_schedule_handler(httpd_req_t *req);
 static esp_err_t status_table_handler(httpd_req_t *req);
+static esp_err_t schedule_table_handler(httpd_req_t *req);
 static esp_err_t body_js_handler(httpd_req_t *req);
 static esp_err_t gpio_handler(httpd_req_t *req);
 
@@ -92,6 +93,14 @@ static const httpd_uri_t status_table = {
     .uri = "/status_table",
     .method = HTTP_GET,
     .handler = status_table_handler,
+    /* Let's pass response string in user
+     * context to demonstrate it's usage */
+    .user_ctx = NULL};
+static const httpd_uri_t schedule_table = {
+    /* queries, room, time start-end */
+    .uri = "/schedule_table",
+    .method = HTTP_GET,
+    .handler = schedule_table_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = NULL};
@@ -153,6 +162,30 @@ static esp_err_t status_table_handler(httpd_req_t *req) {
   httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK; 
 }
+
+static esp_err_t schedule_table_handler(httpd_req_t *req) {
+  esp_chip_info_t chip_info;
+  uint32_t flash_size;
+  esp_chip_info(&chip_info);
+  char buf[256];
+  format_table_str(buf, sizeof(buf), "Target", CONFIG_IDF_TARGET);
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  format_table_int(buf, sizeof(buf), "Cores", chip_info.cores);
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  if (esp_flash_get_size(NULL, &flash_size) == ESP_OK) {
+    format_table_u32(buf, sizeof(buf), "Flash size", flash_size);
+    httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  }
+  format_table_str(buf, sizeof(buf) , "Flash size location", chip_info.features & CHIP_FEATURE_EMB_FLASH ? "embedded" : "external");
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+
+  format_table_u32(buf, sizeof(buf), "Flash size", esp_get_minimum_free_heap_size());
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  
+  httpd_resp_send_chunk(req, NULL, 0);
+  return ESP_OK; 
+}
+
 static esp_err_t root_handler(httpd_req_t *req) {
   char *buf;
   size_t buf_len;
@@ -461,6 +494,7 @@ static httpd_handle_t start_webserver(void) {
     httpd_register_uri_handler(server, &root);
     httpd_register_uri_handler(server, &body_js);
     httpd_register_uri_handler(server, &status_table);
+    httpd_register_uri_handler(server, &schedule_table);
     httpd_register_uri_handler(server, &add_schedule);
     httpd_register_uri_handler(server, &remove_schedule);
     httpd_register_uri_handler(server, &gpio);
