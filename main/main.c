@@ -51,6 +51,7 @@ typedef struct server_ctx_t server_ctx_t;
 struct server_ctx_t {
   int nb_schedules;
   schedule_t schedules[MAX_SCHEDULES];
+  char pins_level[38];
 };
 
 static server_ctx_t server_ctx = {0};
@@ -71,6 +72,7 @@ static esp_err_t status_table_handler(httpd_req_t *req);
 static esp_err_t schedule_table_handler(httpd_req_t *req);
 static esp_err_t body_js_handler(httpd_req_t *req);
 static esp_err_t gpio_handler(httpd_req_t *req);
+static esp_err_t gpio_level_handler(httpd_req_t *req);
 
 static const httpd_uri_t root = {
     /* queries, room, time start-end */
@@ -85,6 +87,14 @@ static const httpd_uri_t gpio = {
     .uri = "/gpio",
     .method = HTTP_POST,
     .handler = gpio_handler,
+    /* Let's pass response string in user
+     * context to demonstrate it's usage */
+    .user_ctx = &server_ctx};
+static const httpd_uri_t gpio_level = {
+    /* queries, room, time start-end */
+    .uri = "/gpio_level",
+    .method = HTTP_GET,
+    .handler = gpio_level_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = &server_ctx};
@@ -337,9 +347,46 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
   httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
+static esp_err_t gpio_level_handler(httpd_req_t *req) {
+  char* buf = NULL;
+  size_t buf_len;
+
+  // Get the length of the query string
+  buf_len = httpd_req_get_url_query_len(req) + 1;
+  if (buf_len > 1) {
+      buf = malloc(buf_len);
+      if (buf == NULL) {
+          ESP_LOGE(TAG, "Failed to allocate memory");
+          // Respond with an internal server error
+          httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Internal Server Error");
+          return ESP_FAIL;
+      }
+      // Get the query string itself
+      if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+          ESP_LOGI(TAG, "Found URL query => %s", buf);
+          char param[32];
+          // Extract the value for a specific key "param1"
+          if (httpd_query_key_value(buf, "gpio", param, sizeof(param)) == ESP_OK) {
+              ESP_LOGI(TAG, "Found key 'param1' = %s", param);
+              uint64_t g = gpiov_to_macro(atoi(param));
+	      if (!g) goto err;
+	      int level = server_ctx.pins_level[atoi(param)];
+	      char str[32] = {0};
+	      str[0] = '0' + level;
+              httpd_resp_send(req, str, HTTPD_RESP_USE_STRLEN);
+              // Use 'param' value in your application logic
+          }
+      }
+  }
+  free(buf);
+  return ESP_OK;
+err:
+  free(buf);
+  return ESP_FAIL;
+}
 static esp_err_t gpio_handler(httpd_req_t *req) {
   int len;
-  char buf[256] = {0}, gpiov[16], switchv[16];
+  char buf[256] = {0}, gpiov[16], value[16];
   if ((len = read_buf(req, buf, sizeof(buf))) < 0)
     return ESP_FAIL;
   /* Log data received */
@@ -351,12 +398,14 @@ static esp_err_t gpio_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "found param gpio=%s",gpiov);
     uint64_t g = gpiov_to_macro(atoi(gpiov));
     if (!g) goto err;
-    if (httpd_query_key_value(buf, "switch", switchv, sizeof(switchv)) == ESP_OK) {
-      ESP_LOGI(TAG, "found param switch=%s", switchv);
-      if (!strcmp(switchv, "off")) {
+    if (httpd_query_key_value(buf, "value", value, sizeof(value)) == ESP_OK) {
+      ESP_LOGI(TAG, "found param switch=%s", value);
+      if (!strcmp(value, "off")) {
         gpio_set_level(g, 0);
-      } else if (!strcmp(switchv, "on")) {
+	server_ctx.pins_level[atoi(gpiov)] = 0;
+      } else if (!strcmp(value, "on")) {
         gpio_set_level(g, 1);
+	server_ctx.pins_level[atoi(gpiov)] = 1;
       }
       else goto err;
       httpd_resp_set_status(req, "201 Created");
@@ -498,6 +547,7 @@ static httpd_handle_t start_webserver(void) {
     httpd_register_uri_handler(server, &add_schedule);
     httpd_register_uri_handler(server, &remove_schedule);
     httpd_register_uri_handler(server, &gpio);
+    httpd_register_uri_handler(server, &gpio_level);
     ESP_LOGI(TAG, "Ok");
     return server;
   }
@@ -553,16 +603,24 @@ void app_main(void) {
       WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, &server));
   /* init gpio pins */
   gpio_config_t io_conf_output = {
-      .pin_bit_mask = (GGPIO(22) | GGPIO(23) | GGPIO(25) | GGPIO(26) | GGPIO(27) | GGPIO(32) | GGPIO(33)),
+      .pin_bit_mask = (GGPIO(22) | GGPIO(23) | GGPIO(25) | GGPIO(26) | GGPIO(27) | GGPIO(33)),
       .mode = GPIO_MODE_OUTPUT,                 // Set as output
       .pull_up_en = GPIO_PULLUP_DISABLE,        // Disable internal pull-up
       .pull_down_en = GPIO_PULLDOWN_DISABLE,    // Disable internal pull-down
       .intr_type = GPIO_INTR_DISABLE            // Disable interrupts
   };
   gpio_config(&io_conf_output);
+  gpio_config_t io_conf_input = {
+      .pin_bit_mask = (GGPIO(32) | GGPIO(34) | GGPIO(35)),
+      .mode = GPIO_MODE_INPUT,                 // Set as output
+      .pull_up_en = GPIO_PULLUP_DISABLE,        // Disable internal pull-up
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,    // Disable internal pull-down
+      .intr_type = GPIO_INTR_DISABLE            // Disable interrupts
+  };
+  gpio_config(&io_conf_input);
 
 
-  gpio_set_level(GPIO_NUM_25, 1);
+  //gpio_set_level(GPIO_NUM_25, 1);
   /* Start the server for the first time */
   server = start_webserver();
 

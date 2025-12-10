@@ -60,26 +60,30 @@
 				<table style="width:100%">
 					<tr>
 						<td>Living room</td>
-						<td><input type="checkbox" onclick="onClick(this)" id="lroom" checked="true"></td>
+						<td><input type="checkbox" onclick="gpio_switch(this, '25')" id="gpio25" checked="true"></td>
 					</tr>
 					<tr>
 						<td>Family room</td>
-						<td><input type="checkbox" onclick="onClick(this)" id="froom" checked="true"></td>
+						<td><input type="checkbox" onclick="gpio_switch(this, '26')" id="gpio26" checked="true"></td>
 					</tr>
 					<tr>
 						<td>Dining room</td>
-						<td><input type="checkbox" onclick="onClick(this)" id="droom" checked="true"></td>
+						<td><input type="checkbox" onclick="gpio_switch(this, '27')" id="gpio27" checked="true"></td>
 					</tr>
 					<tr>
 						<td>Bathroom</td>
-						<td><input type="checkbox" onclick="onClick(this)" id="broom" checked="true"></td>
+						<td><input type="checkbox" onclick="gpio_switch(this, '33')" id="gpio33" checked="true"></td>
 					</tr>
 				</table>
 			<h3>Second floor</h3>
 				<table style="width:100%">
 					<tr>
-						<td>Attic</td>
-						<td><input type="checkbox" onclick="onClick(this)" id="aRoom" checked="true"></td>
+						<td>Attic 1</td>
+						<td><input type="checkbox" onclick="gpio_switch(this, '22')" id="gpio22" checked="true"></td>
+					</tr>
+					<tr>
+						<td>Attic 2</td>
+						<td><input type="checkbox" onclick="gpio_switch(this, '23')" id="gpio23" checked="true"></td>
 					</tr>
 				</table>
 			<h3>Schedule</h3>
