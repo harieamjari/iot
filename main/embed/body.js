@@ -9,16 +9,24 @@ function onClick(elmnt) {
   alert("new value " + elmnt.checked + " " + elmnt.id);
 }
 function onChange(elmnt) { alert(elmnt.id + " was changed"); }
-function updateStatus(elmnt) {}
-fetch('/status_table').then(response => {
-  if (!response.ok) {
-    throw new Error('http error');
-  }
-  return response.text();
-}).then(data => {
-  document.getElementById("status_table").innerHTML = data;
-}).catch(e => {alert("could not fetch status_table");});
-
+function update_status() {
+  fetch('/status_table').then(response => {
+    if (!response.ok) {
+      throw new Error('http error');
+    }
+    return response.text();
+  }).then(data => {
+    document.getElementById("status_table").innerHTML = data;
+  }).catch(e => {alert("could not fetch status_table");});
+  
+}
+function gpio_switch(elmnt, pin, v) {
+  const data = {gpio: pin, switchv: v};
+  const edata = Object.keys(data)
+    .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(data[key]))
+    .join('&');
+  fetch('/gpio', {method: 'POST', body: edata});
+}
 if (window.location.pathname === '/') {
   const url_params = new URLSearchParams(window.location.search);
   const tab_param_value = url_params.get('tab');
@@ -28,6 +36,7 @@ if (window.location.pathname === '/') {
     document.getElementById("lighting_tab").click();
   }
 }
+update_status();
 
 var date = new Date();
 document.getElementById("currentTime").value = date.getFullYear() + "-" +
