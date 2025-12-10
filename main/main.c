@@ -12,9 +12,9 @@
 #include "esp_netif.h"
 #include "esp_tls.h"
 #include "esp_tls_crypto.h"
+#include "esp_flash.h"
 #include "esp_chip_info.h"
-#include "protocol_examples_common.h"
-#include "protocol_examples_utils.h"
+#include "driver/gpio.h"
 #include <esp_http_server.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
@@ -40,6 +40,7 @@ static const char *TAG = "main";
 
 #define MAX_SCHEDULES 24
 #define MAX_TRIES 10
+#define GGPIO(X) (1ULL << GPIO_NUM_##X)
 
 typedef struct schedule_t schedule_t;
 struct schedule_t {
@@ -68,12 +69,21 @@ static esp_err_t add_schedule_handler(httpd_req_t *req);
 static esp_err_t remove_schedule_handler(httpd_req_t *req);
 static esp_err_t status_table_handler(httpd_req_t *req);
 static esp_err_t body_js_handler(httpd_req_t *req);
+static esp_err_t gpio_handler(httpd_req_t *req);
 
 static const httpd_uri_t root = {
     /* queries, room, time start-end */
     .uri = "/",
     .method = HTTP_GET,
     .handler = root_handler,
+    /* Let's pass response string in user
+     * context to demonstrate it's usage */
+    .user_ctx = &server_ctx};
+static const httpd_uri_t gpio = {
+    /* queries, room, time start-end */
+    .uri = "/gpio",
+    .method = HTTP_POST,
+    .handler = gpio_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = &server_ctx};
@@ -134,7 +144,7 @@ static esp_err_t status_table_handler(httpd_req_t *req) {
     format_table_u32(buf, sizeof(buf), "Flash size", flash_size);
     httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
   }
-  format_table_str(buf, sizeof(buf) , "Flash size location", chip_info.features & CHIP_CHEATURE_EMB_FLASH ? "embedded" : "external");
+  format_table_str(buf, sizeof(buf) , "Flash size location", chip_info.features & CHIP_FEATURE_EMB_FLASH ? "embedded" : "external");
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 
   format_table_u32(buf, sizeof(buf), "Flash size", esp_get_minimum_free_heap_size());
@@ -240,7 +250,7 @@ static esp_err_t root_handler(httpd_req_t *req) {
   return ESP_OK;
 }
 
-static int read_buf(httpd_req_t *req, char buf, size_t len) {
+static int read_buf(httpd_req_t *req, char *buf, size_t len) {
   int ret;
   int tries = 0, read = 0;
   if (req->content_len > 255)
@@ -248,7 +258,7 @@ static int read_buf(httpd_req_t *req, char buf, size_t len) {
 
   while (read < req->content_len) {
     /* Read the data for the request */
-    if ((ret = httpd_req_recv(req, buf + read, lean - read)) <= 0) {
+    if ((ret = httpd_req_recv(req, buf + read, req->content_len - read)) <= 0) {
       if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
         /* Retry receiving if timeout occurred */
 	tries++;
@@ -267,6 +277,19 @@ static int read_buf(httpd_req_t *req, char buf, size_t len) {
   return read;
 }
 
+static uint64_t gpiov_to_macro(int gpio){
+  // .pin_bit_mask = (GGPIO(22) | GGPIO(23) | GGPIO(25) | GGPIO(26) | GGPIO(27) | GGPIO(32) | GGPIO(33)),
+  switch (gpio) {
+    case 22: return GPIO_NUM_22;
+    case 23: return GPIO_NUM_23;
+    case 25: return GPIO_NUM_25;
+    case 26: return GPIO_NUM_26;
+    case 27: return GPIO_NUM_27;
+    case 32: return GPIO_NUM_32;
+    case 33: return GPIO_NUM_33;
+    default: return 0;
+  }
+}
 static esp_err_t add_schedule_handler(httpd_req_t *req) {
   int len;
   char buf[256] = {0};
@@ -274,12 +297,43 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
     return ESP_FAIL;
   /* Log data received */
   ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
-  ESP_LOGI(TAG, "%.*s", ret, buf);
+  ESP_LOGI(TAG, "%.*s", len, buf);
   ESP_LOGI(TAG, "====================================");
   httpd_resp_set_status(req, "201 Created");
   httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
   httpd_resp_send(req, NULL, 0);
   return ESP_OK;
+}
+static esp_err_t gpio_handler(httpd_req_t *req) {
+  int len;
+  char buf[256] = {0}, gpiov[16], switchv[16];
+  if ((len = read_buf(req, buf, sizeof(buf))) < 0)
+    return ESP_FAIL;
+  /* Log data received */
+  ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
+  ESP_LOGI(TAG, "%.*s", len, buf);
+  ESP_LOGI(TAG, "====================================");
+  // .pin_bit_mask = (GGPIO(22) | GGPIO(23) | GGPIO(25) | GGPIO(26) | GGPIO(27) | GGPIO(32) | GGPIO(33)),
+  if (httpd_query_key_value(buf, "gpio", gpiov, sizeof(gpiov)) == ESP_OK) {
+    ESP_LOGI(TAG, "found param gpio=%s",gpiov);
+    uint64_t g = gpiov_to_macro(atoi(gpiov));
+    if (!g) goto err;
+    if (httpd_query_key_value(buf, "switch", switchv, sizeof(switchv)) == ESP_OK) {
+      ESP_LOGI(TAG, "found param switch=%s", switchv);
+      if (!strcmp(switchv, "off")) {
+        gpio_set_level(g, 0);
+      } else if (!strcmp(switchv, "on")) {
+        gpio_set_level(g, 1);
+      }
+      else goto err;
+      httpd_resp_set_status(req, "201 Created");
+      httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
+      httpd_resp_send(req, NULL, 0);
+      return ESP_OK;
+    }
+  }
+err:
+  return ESP_FAIL;
 }
 
 static esp_err_t remove_schedule_handler(httpd_req_t *req) {
@@ -288,7 +342,7 @@ static esp_err_t remove_schedule_handler(httpd_req_t *req) {
   if ((len = read_buf(req, buf, sizeof(buf))) < 0)
     return ESP_FAIL;
   ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
-  ESP_LOGI(TAG, "%.*s", ret, buf);
+  ESP_LOGI(TAG, "%.*s", len, buf);
   ESP_LOGI(TAG, "====================================");
 
   httpd_resp_set_status(req, "201 Created");
@@ -409,6 +463,7 @@ static httpd_handle_t start_webserver(void) {
     httpd_register_uri_handler(server, &status_table);
     httpd_register_uri_handler(server, &add_schedule);
     httpd_register_uri_handler(server, &remove_schedule);
+    httpd_register_uri_handler(server, &gpio);
     ESP_LOGI(TAG, "Ok");
     return server;
   }
@@ -462,7 +517,18 @@ void app_main(void) {
                                              &connect_handler, &server));
   ESP_ERROR_CHECK(esp_event_handler_register(
       WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, &server));
+  /* init gpio pins */
+  gpio_config_t io_conf_output = {
+      .pin_bit_mask = (GGPIO(22) | GGPIO(23) | GGPIO(25) | GGPIO(26) | GGPIO(27) | GGPIO(32) | GGPIO(33)),
+      .mode = GPIO_MODE_OUTPUT,                 // Set as output
+      .pull_up_en = GPIO_PULLUP_DISABLE,        // Disable internal pull-up
+      .pull_down_en = GPIO_PULLDOWN_DISABLE,    // Disable internal pull-down
+      .intr_type = GPIO_INTR_DISABLE            // Disable interrupts
+  };
+  gpio_config(&io_conf_output);
 
+
+  gpio_set_level(GPIO_NUM_25, 1);
   /* Start the server for the first time */
   server = start_webserver();
 
