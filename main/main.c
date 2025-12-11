@@ -285,6 +285,13 @@ static uint64_t gpiov_to_macro(int gpio){
     default: return 0;
   }
 }
+static schedule_t *schedule_get_unused() {
+  int c = 0;
+  for (int i = 0; i < MAX_SCHEDULES; i++)
+    if (!server_ctx.schedules[i].is_active)
+      return &server_ctx.schedules[i];
+  return NULL;
+}
 static esp_err_t add_schedule_handler(httpd_req_t *req) {
   int len;
   char buf[256] = {0};
@@ -294,11 +301,35 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
   ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
   ESP_LOGI(TAG, "%.*s", len, buf);
   ESP_LOGI(TAG, "====================================");
-  httpd_resp_set_status(req, "201 Created");
-  httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
-  httpd_resp_send(req, NULL, 0);
-  return ESP_OK;
+
+  esp_schedule_config_t sched_conf = {
+    .name = strdup("test"),
+    .trigger.type = ESP_SCHEDULE_TYPE_DAYS_OF_WEEK,
+    .trigger.hours = 14,
+    .trigger.minutes = 30,
+    .trigger.day.repeat_days = ESP_SCHEDULE_DAY_ALL,
+    .trigger_cb = days_of_week_callback,
+    .timestamp_cb = timestamp_callback,
+    .priv_data = days_of_week_data,
+    .validity = {
+        .start_time = 0,  // Start immediately
+        .end_time = 0     // No end time (run indefinitely)
+    }
+  };
+
+  esp_schedule_handle_t sched_handle = esp_schedule_create(&days_schedule);
+  if (sched_handle) {
+    ESP_LOGI(TAG, "Created days of week schedule successfully");
+    esp_schedule_enable(sched_handle);
+
+    httpd_resp_set_status(req, "201 Created");
+    httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+  }
+  return ESP_FAIL;
 }
+
 static esp_err_t gpio_level_handler(httpd_req_t *req) {
   char* buf = NULL;
   size_t buf_len;

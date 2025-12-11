@@ -1,12 +1,15 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
+#include "esp_schedule.h"
 
 #define MAX_SCHEDULES 24
 typedef struct schedule_t schedule_t;
 struct schedule_t {
-  int room;
-  uint32_t start, end;
+  uint64_t gpio;
+  esp_schedule_handle_t schedule_handle;
+  char switchv;
+  char is_active;
 };
 typedef struct server_ctx_t server_ctx_t;
 struct server_ctx_t {
