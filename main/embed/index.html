@@ -2,7 +2,7 @@
 <html>
 	<head>
 		<link rel="icon" href="data:,">
-		<meta name="viewport" content="with=device-width, initial-scale=1">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<title> ESP32 Smart Home IoT</title>
 		<style>
 			body, html {
@@ -20,7 +20,7 @@
 				padding: 14px 16px;
 				font-size: 12px;
 				display: inline-block;
-				width: calc(100% / 5);
+				width: calc(100% / 4);
 				box-sizing: border-box;
 			}
 			.tablink:hover {background-color: #777}
@@ -32,9 +32,8 @@
 		</style>
 	</head>
 	<body>
-		<button class="tablink" onclick="openPage('status_tab', this)">Status</button>
-		<button class="tablink" onclick="openPage('lighting_tab', this)" >Lighting</button>
-		<button class="tablink" onclick="openPage('logs_tab', this)">Logs</button>
+		<button id="status_button" class="tablink" onclick="openPage('status_tab', this)">Status</button>
+		<button id="lighting_button" class="tablink" onclick="openPage('lighting_tab', this)" >Lighting</button>
 		<button class="tablink" onclick="openPage('settings_tab', this)">Settings</button>
 		<button class="tablink" onclick="openPage('about_tab', this)">About </button>
 
@@ -94,7 +93,7 @@
 				<h4> Add a schedule to turn on the lights </h4>
 				<form action="/add_schedule" method="post">
 					<label for="dl_room"> Room </label> 
-					<select id="dl_room" name="rooms">
+					<select id="dl_room" name="gpio">
 						<option value="25">Living room</option>
 						<option value="26">Family room</option>
 						<option value="27">Dining room</option>
@@ -104,10 +103,10 @@
 					</select>
 					<br>
 					<label for="dl_start"> Time </label> 
-					<input id="dl_start" name="dl_start" type="time" size="6" required>
+					<input id="dl_start" name="time" type="time" size="6" required>
 					<br>
 					<label for="dl_switch"> Switch </label> 
-					<select id="dl_switch" name="switches">
+					<select id="dl_switch" name="switchv">
 						<option value="1">on</option>
 						<option value="0">off</option>
 					</select>
@@ -126,15 +125,15 @@
 				<table style="width:100%">
 					<tr>
 						<td><input id="setting_datetime" type="datetime-local"></td>
-						<td><button onclick="update_time(this)">Change</button></td>
+						<td><button onclick="update_datetime(this)">Change</button></td>
 					</tr>
 				</table>
 		</div>
-		<div id="logs_tab" class="tabcontent">
+		<!-- <div id="logs_tab" class="tabcontent">
 			<code id="logs">
 				fatal: unaligned memory access
-			</code>
-		</div>
+				</code>
+				</div> --!>
 		<div id="about_tab" class="tabcontent">
 			<span> The sources from which this HTTP web server was built were transformed beyond human comprehension. </span>
 			<br>

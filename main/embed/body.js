@@ -17,7 +17,9 @@ function update_id(id) {
     return response.text();
   }).then(data => {
     document.getElementById(id).innerHTML = data;
-  }).catch(e => {alert("could not fetch " + id);});
+  }).catch(e => {
+//	  alert("could not fetch " + id);
+  });
 }
 function update_checkbox(id) {
   fetch('/gpio_level?gpio=' + id).then(response => {
@@ -46,14 +48,8 @@ function update_datetime(elmnt) {
   fetch('/update_datetime', {method: 'POST', body: edata});
   window.location.reload();
 }
-if (window.location.pathname === '/') {
-  const url_params = new URLSearchParams(window.location.search);
-  const tab_param_value = url_params.get('tab');
-  if (tab_param_value === null)
-    document.getElementById("status_tab").click();
-  else if (tab_param_value === 'lighting') {
-    document.getElementById("lighting_tab").click();
-  }
+function add_schedule(){
+
 }
 setInterval(update_id, 1000, 'status_table');
 update_id('schedule_table');
@@ -65,3 +61,10 @@ update_checkbox('33');
 // attics
 update_checkbox('22');
 update_checkbox('23');
+const url_params = new URLSearchParams(window.location.search);
+const tab_param_value = url_params.get('tab');
+if (tab_param_value === 'lighting_tab')
+  document.getElementById("lighting_button").click();
+else {
+  document.getElementById("status_button").click();
+}

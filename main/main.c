@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
+#include <ctype.h>
 #if !CONFIG_IDF_TARGET_LINUX
 #include "esp_eth.h"
 #include "nvs_flash.h"
@@ -68,6 +69,7 @@ static esp_err_t gpio_handler(httpd_req_t *req);
 static esp_err_t gpio_level_handler(httpd_req_t *req);
 static esp_err_t quote_handler(httpd_req_t *req);
 static esp_err_t update_datetime_handler(httpd_req_t *req);
+static char *percent_decode(const uint8_t *value, size_t valuelen);
 
 static const httpd_uri_t root = {
     /* queries, room, time start-end */
@@ -88,8 +90,8 @@ static const httpd_uri_t gpio = {
 static const httpd_uri_t quote = {
     /* queries, room, time start-end */
     .uri = "/quote",
-    .method = HTTP_POST,
-    .handler = gpio_handler,
+    .method = HTTP_GET,
+    .handler = quote_handler,
     /* Let's pass response string in user
      * context to demonstrate it's usage */
     .user_ctx = &server_ctx};
@@ -285,6 +287,19 @@ static uint64_t gpiov_to_macro(int gpio){
     default: return 0;
   }
 }
+static int macro_to_gpiov(uint64_t gpio){
+  // .pin_bit_mask = (GGPIO(22) | GGPIO(23) | GGPIO(25) | GGPIO(26) | GGPIO(27) | GGPIO(32) | GGPIO(33)),
+  switch (gpio) {
+    case GPIO_NUM_22: return 22;
+    case GPIO_NUM_23: return 23;
+    case GPIO_NUM_25: return 25;
+    case GPIO_NUM_26: return 26;
+    case GPIO_NUM_27: return 27;
+    case GPIO_NUM_32: return 32;
+    case GPIO_NUM_33: return 33;
+    default: return -1;
+  }
+}
 static schedule_t *schedule_get_unused() {
   int c = 0;
   for (int i = 0; i < MAX_SCHEDULES; i++)
@@ -292,39 +307,92 @@ static schedule_t *schedule_get_unused() {
       return &server_ctx.schedules[i];
   return NULL;
 }
+
+static void schedule_trigger_cb(esp_schedule_handle_t handle, void *priv_data)
+{
+  schedule_t *schedule = priv_data;
+  if (schedule->switchv) {
+    gpio_set_level(schedule->gpio, 1);
+    server_ctx.pins_level[macro_to_gpiov(schedule->gpio)] = 1;
+  }
+  else {
+    gpio_set_level(schedule->gpio, 0);
+    server_ctx.pins_level[macro_to_gpiov(schedule->gpio)] = 0;
+  
+  }
+}
+static void schedule_timestamp_cb(esp_schedule_handle_t handle, uint32_t next_timestamp, void *priv_data)
+{
+	return;
+}
+
+
+
 static esp_err_t add_schedule_handler(httpd_req_t *req) {
   int len;
-  char buf[256] = {0};
+  char buf[256] = {0}, *decoded, value[32];
   if ((len = read_buf(req, buf, sizeof(buf))) < 0)
     return ESP_FAIL;
   /* Log data received */
   ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
   ESP_LOGI(TAG, "%.*s", len, buf);
   ESP_LOGI(TAG, "====================================");
+  decoded = (char *)percent_decode((uint8_t*)buf, sizeof(buf));
+  uint64_t gpio;
+  int hour, minute;
+  char switchv;
 
+  schedule_t *schedule_ctx = schedule_get_unused();
+  if (schedule_ctx == NULL)
+    return ESP_FAIL;
   esp_schedule_config_t sched_conf = {
-    .name = strdup("test"),
+    .name = "",
     .trigger.type = ESP_SCHEDULE_TYPE_DAYS_OF_WEEK,
-    .trigger.hours = 14,
-    .trigger.minutes = 30,
-    .trigger.day.repeat_days = ESP_SCHEDULE_DAY_ALL,
-    .trigger_cb = days_of_week_callback,
-    .timestamp_cb = timestamp_callback,
-    .priv_data = days_of_week_data,
+    .trigger.hours = 0,
+    .trigger.minutes = 0,
+    .trigger.day.repeat_days = ESP_SCHEDULE_DAY_EVERYDAY,
+    .trigger_cb = schedule_trigger_cb,
+    .timestamp_cb = schedule_timestamp_cb,
+    .priv_data = schedule_ctx,
     .validity = {
         .start_time = 0,  // Start immediately
         .end_time = 0     // No end time (run indefinitely)
     }
   };
 
-  esp_schedule_handle_t sched_handle = esp_schedule_create(&days_schedule);
-  if (sched_handle) {
+  if (httpd_query_key_value(decoded, "gpio", value, sizeof(value)) != ESP_OK) {
+    free(decoded);
+    return ESP_FAIL;
+  }
+  gpio = gpiov_to_macro(atoi(value));
+  if (!gpio){free(decoded); return ESP_FAIL;}
+  memcpy(sched_conf.name, value, 2);
+  if (httpd_query_key_value(decoded, "time", value, sizeof(value)) != ESP_OK) {
+    free(decoded);
+    return ESP_FAIL;
+  }
+  hour = (value[0] - '0')*10 + (value[1] - '0');
+  minute = (value[3] - '0')*10 + (value[4] - '0');
+  if (httpd_query_key_value(decoded, "switchv", value, sizeof(value)) != ESP_OK) {
+    free(decoded);
+    return ESP_FAIL;
+  }
+  free(decoded);
+  switchv = value[0] - '0';
+  sched_conf.trigger.hours = (hour < 0 || hour > 23) ? 0 : hour;
+  sched_conf.trigger.minutes = (minute < 0 || minute > 59) ? 0 : minute;
+  schedule_ctx->switchv = switchv;
+
+
+  schedule_ctx->sched_handle = esp_schedule_create(&sched_conf);
+  if (schedule_ctx->sched_handle) {
     ESP_LOGI(TAG, "Created days of week schedule successfully");
-    esp_schedule_enable(sched_handle);
+    esp_schedule_enable(schedule_ctx->sched_handle);
+    schedule_ctx->is_active = 1;
 
     httpd_resp_set_status(req, "201 Created");
-    httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
-    httpd_resp_send(req, NULL, 0);
+    httpd_resp_set_hdr(req, "Location", "/");
+    httpd_resp_send(req, "Redirecting", HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
   }
   return ESP_FAIL;
@@ -405,21 +473,79 @@ static esp_err_t quote_handler(httpd_req_t *req) {
   httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK;
 }
+
+static struct tm parse_time_buf(char *buf, size_t len) {
+  struct tm date_time = {0};
+  char temp[32] = {0};
+  memcpy(temp, buf, 4);
+  temp[4] = 0;
+  date_time.tm_year = (atoi(temp) < 0 ? 0 : atoi(temp)) - 1900;
+  int mon = (buf[5] - '0')*10 + (buf[6]-'0');
+  date_time.tm_mon = mon < 1 ? 0 : mon - 1;
+  int mday = (buf[8] - '0')*10 + (buf[9]-'0');
+  date_time.tm_mday = (mday < 1 || mday > 31) ? 1 : mday;
+  int hour = (buf[11] - '0')*10 + (buf[12]-'0');
+  date_time.tm_hour = (hour < 0 || hour > 23) ? 0 : hour;
+  int min = (buf[14] - '0')*10 + (buf[15]-'0');
+  date_time.tm_min = (min < 0 || min > 59) ? 0 : min;
+  date_time.tm_sec = 0;
+  return date_time;
+}
+/* Returns int value of hex string character |c| */
+static uint8_t hex_to_uint(uint8_t c) {
+  if ('0' <= c && c <= '9') {
+    return (uint8_t)(c - '0');
+  }
+  if ('A' <= c && c <= 'F') {
+    return (uint8_t)(c - 'A' + 10);
+  }
+  if ('a' <= c && c <= 'f') {
+    return (uint8_t)(c - 'a' + 10);
+  }
+  return 0;
+}
+static char *percent_decode(const uint8_t *value, size_t valuelen) {
+  char *res;
+
+  res = malloc(valuelen + 1);
+  if (valuelen > 3) {
+    size_t i, j;
+    for (i = 0, j = 0; i < valuelen - 2;) {
+      if (value[i] != '%' || !isxdigit(value[i + 1]) ||
+          !isxdigit(value[i + 2])) {
+        res[j++] = (char)value[i++];
+        continue;
+      }
+      res[j++] =
+        (char)((hex_to_uint(value[i + 1]) << 4) + hex_to_uint(value[i + 2]));
+      i += 3;
+    }
+    memcpy(&res[j], &value[i], 2);
+    res[j + 2] = '\0';
+  } else {
+    memcpy(res, value, valuelen);
+    res[valuelen] = '\0';
+  }
+  return res;
+}
+
 static esp_err_t update_datetime_handler(httpd_req_t *req) {
   int len;
-  char buf[64] = {0}, val[64];
+  char buf[64] = {0}, datetimev[64], *decoded;
   if ((len = read_buf(req, buf, sizeof(buf))) < 0)
+    return ESP_FAIL;
+  if (httpd_query_key_value(buf, "datetime", datetimev, sizeof(datetimev)) != ESP_OK)
     return ESP_FAIL;
   ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
   ESP_LOGI(TAG, "%.*s", len, buf);
   ESP_LOGI(TAG, "====================================");
-  struct tm date_time = {0};
-  date_time.tm_year = 2025 - 1900;
-  date_time.tm_mon = 11;
-  date_time.tm_mday = 12;
-  date_time.tm_hour = 11;
-  date_time.tm_min = 14;
-  date_time.tm_sec = 0;
+  decoded = percent_decode((uint8_t*)datetimev, sizeof(datetimev));
+  if (decoded == NULL) return ESP_FAIL;
+  ESP_LOGI(TAG, "=========== DECODED DATA ==========");
+  ESP_LOGI(TAG, "%.*s", strlen(decoded), decoded);
+  ESP_LOGI(TAG, "====================================");
+  struct tm date_time = parse_time_buf(decoded, strlen(decoded));
+  free(decoded);
   time_t epoch = mktime(&date_time);
   settimeofday(&(const struct timeval){epoch, 0}, NULL);
   if (1) goto err;
@@ -542,6 +668,7 @@ static const httpd_uri_t ctrl = {.uri = "/ctrl",
 static httpd_handle_t start_webserver(void) {
   httpd_handle_t server = NULL;
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.max_uri_handlers = 12;
   config.lru_purge_enable = true;
 
   // Start the httpd server
@@ -550,6 +677,7 @@ static httpd_handle_t start_webserver(void) {
     // Set URI handlers
     ESP_LOGI(TAG, "Registering URI handlers");
     httpd_register_uri_handler(server, &root);
+    httpd_register_uri_handler(server, &quote);
     httpd_register_uri_handler(server, &body_js);
     httpd_register_uri_handler(server, &status_table);
     httpd_register_uri_handler(server, &update_datetime);
