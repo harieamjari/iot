@@ -7,8 +7,9 @@
 typedef struct schedule_t schedule_t;
 struct schedule_t {
   uint64_t gpio;
+  esp_schedule_config_t sched_config;
   esp_schedule_handle_t sched_handle;
-  char switchv;
+  uint8_t switchv;
   char is_active;
 };
 typedef struct server_ctx_t server_ctx_t;

@@ -180,6 +180,13 @@ static void format_time(char *buf, size_t size) {
   localtime_r(&now, &timeinfo);
   strftime(buf, size, "%Y-%m-%d %H:%M:%S", &timeinfo);
 }
+
+static void reply_500(httpd_req_t *req) {
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Internal Server Error");
+}
+static void reply_400(httpd_req_t *req) {
+  httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Bad request");
+}
 static esp_err_t status_table_handler(httpd_req_t *req) {
   esp_chip_info_t chip_info;
   uint32_t flash_size;
@@ -204,17 +211,21 @@ static esp_err_t status_table_handler(httpd_req_t *req) {
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 
   adc_iot_read(&server_ctx);
-  format_table_int(buf, sizeof(buf), "Battery voltage divider (normal 1650 mV)", server_ctx.voltage6);
+  format_table_int(buf, sizeof(buf), "Battery voltage divider (normal 1650 mV)", server_ctx.voltage4);
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 //
   format_table_int(buf, sizeof(buf), "LDR 1 voltage (mV)", server_ctx.voltage7);
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
 
-  format_table_int(buf, sizeof(buf), "LDR 2 voltage (mV)", server_ctx.voltage4);
+  format_table_int(buf, sizeof(buf), "LDR 2 voltage (mV)", server_ctx.voltage6);
   httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
   
   httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK; 
+}
+
+static void format_schedule_table_str(char *buf, int len, char *name, uint8_t hours, uint8_t minutes, uint8_t switchv ) {
+  snprintf(buf, len, "<tr><td>%s</td><td>%"PRIu8":%"PRIu8"</td><td>%"PRIu8"</td></tr>", name, hours, minutes, switchv);
 }
 
 static esp_err_t schedule_table_handler(httpd_req_t *req) {
@@ -222,19 +233,14 @@ static esp_err_t schedule_table_handler(httpd_req_t *req) {
   uint32_t flash_size;
   esp_chip_info(&chip_info);
   char buf[256];
-  format_table_str(buf, sizeof(buf), "Target", CONFIG_IDF_TARGET);
-  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
-  format_table_int(buf, sizeof(buf), "Cores", chip_info.cores);
-  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
-  if (esp_flash_get_size(NULL, &flash_size) == ESP_OK) {
-    format_table_u32(buf, sizeof(buf), "Flash size", flash_size);
-    httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+  for (int i = 0; i < MAX_SCHEDULES; i++) {
+    if (server_ctx.schedules[i].is_active) {
+      schedule_t *sched = &server_ctx.schedules[i];
+        format_schedule_table_str(buf, sizeof(buf), sched->sched_config.name, sched->sched_config.triger.hours, sched->sched_config.trigger.minutes, sched->switchv);
+        httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
+    }
+      
   }
-  format_table_str(buf, sizeof(buf) , "Flash size location", chip_info.features & CHIP_FEATURE_EMB_FLASH ? "embedded" : "external");
-  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
-
-  format_table_u32(buf, sizeof(buf), "Flash size", esp_get_minimum_free_heap_size());
-  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
   
   httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK; 
@@ -300,12 +306,11 @@ static int macro_to_gpiov(uint64_t gpio){
     default: return -1;
   }
 }
-static schedule_t *schedule_get_unused() {
-  int c = 0;
+static int schedule_get_unused_ndx() {
   for (int i = 0; i < MAX_SCHEDULES; i++)
     if (!server_ctx.schedules[i].is_active)
-      return &server_ctx.schedules[i];
-  return NULL;
+      return i;
+  return -1;
 }
 
 static void schedule_trigger_cb(esp_schedule_handle_t handle, void *priv_data)
@@ -331,20 +336,25 @@ static void schedule_timestamp_cb(esp_schedule_handle_t handle, uint32_t next_ti
 static esp_err_t add_schedule_handler(httpd_req_t *req) {
   int len;
   char buf[256] = {0}, *decoded, value[32];
-  if ((len = read_buf(req, buf, sizeof(buf))) < 0)
+  if ((len = read_buf(req, buf, sizeof(buf))) < 0) {
     return ESP_FAIL;
+  }
   /* Log data received */
   ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
   ESP_LOGI(TAG, "%.*s", len, buf);
   ESP_LOGI(TAG, "====================================");
   decoded = (char *)percent_decode((uint8_t*)buf, sizeof(buf));
   uint64_t gpio;
-  int hour, minute;
+  uint8_t hour, minute;
   char switchv;
 
-  schedule_t *schedule_ctx = schedule_get_unused();
-  if (schedule_ctx == NULL)
+  int schedule_ndx = schedule_get_unused_ndx();
+  if (schedule_ndx < 0) {
+    reply_500(req);
     return ESP_FAIL;
+  }
+
+  schedule_t *schedule_ctx = &server_ctx.schedules[i];
   esp_schedule_config_t sched_conf = {
     .name = "",
     .trigger.type = ESP_SCHEDULE_TYPE_DAYS_OF_WEEK,
@@ -362,19 +372,27 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
 
   if (httpd_query_key_value(decoded, "gpio", value, sizeof(value)) != ESP_OK) {
     free(decoded);
+    reply_400(req);
     return ESP_FAIL;
   }
   gpio = gpiov_to_macro(atoi(value));
-  if (!gpio){free(decoded); return ESP_FAIL;}
+  if (!gpio){
+    free(decoded);
+    reply_400(req);
+    return ESP_FAIL;
+  }
   memcpy(sched_conf.name, value, 2);
   if (httpd_query_key_value(decoded, "time", value, sizeof(value)) != ESP_OK) {
     free(decoded);
+    reply_400(req);
     return ESP_FAIL;
   }
-  hour = (value[0] - '0')*10 + (value[1] - '0');
-  minute = (value[3] - '0')*10 + (value[4] - '0');
+  sscanf(value, "%"SCNu8":%"SCNu8, &hour, &minute);
+//  hour = (value[0] - '0')*10 + (value[1] - '0');
+//  minute = (value[3] - '0')*10 + (value[4] - '0');
   if (httpd_query_key_value(decoded, "switchv", value, sizeof(value)) != ESP_OK) {
     free(decoded);
+    reply_400(req);
     return ESP_FAIL;
   }
   free(decoded);
@@ -382,19 +400,25 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
   sched_conf.trigger.hours = (hour < 0 || hour > 23) ? 0 : hour;
   sched_conf.trigger.minutes = (minute < 0 || minute > 59) ? 0 : minute;
   schedule_ctx->switchv = switchv;
+  snprintf(sched_conf.name, sizeof(sched_conf.name), "schedule%d", schedule_ndx);
 
 
   schedule_ctx->sched_handle = esp_schedule_create(&sched_conf);
   if (schedule_ctx->sched_handle) {
     ESP_LOGI(TAG, "Created days of week schedule successfully");
-    esp_schedule_enable(schedule_ctx->sched_handle);
+    if (esp_schedule_enable(schedule_ctx->sched_handle) != ESP_OK) {
+      reply_500(req);
+      return ESP_FAIL;
+    }
     schedule_ctx->is_active = 1;
+    memcpy(&schedule_ctx->sched_config, &sched_conf, sizeof(sched_conf));
 
     httpd_resp_set_status(req, "201 Created");
     httpd_resp_set_hdr(req, "Location", "/");
     httpd_resp_send(req, "Redirecting", HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
   }
+  reply_500(req);
   return ESP_FAIL;
 }
 
@@ -402,38 +426,43 @@ static esp_err_t gpio_level_handler(httpd_req_t *req) {
   char* buf = NULL;
   size_t buf_len;
 
-  // Get the length of the query string
   buf_len = httpd_req_get_url_query_len(req) + 1;
-  if (buf_len > 1) {
-      buf = malloc(buf_len);
-      if (buf == NULL) {
-          ESP_LOGE(TAG, "Failed to allocate memory");
-          // Respond with an internal server error
-          httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Internal Server Error");
-          return ESP_FAIL;
-      }
-      // Get the query string itself
-      if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
-          ESP_LOGI(TAG, "Found URL query => %s", buf);
-          char param[32];
-          // Extract the value for a specific key "param1"
-          if (httpd_query_key_value(buf, "gpio", param, sizeof(param)) == ESP_OK) {
-              ESP_LOGI(TAG, "Found key 'param1' = %s", param);
-              uint64_t g = gpiov_to_macro(atoi(param));
-	      if (!g) goto err;
-	      int level = server_ctx.pins_level[atoi(param)];
-	      char str[32] = {0};
-	      str[0] = '0' + level;
-              httpd_resp_send(req, str, HTTPD_RESP_USE_STRLEN);
-              // Use 'param' value in your application logic
-          }
-      }
+  if (buf_len < 1)
+    reply_400(req);
+
+  buf = malloc(buf_len);
+  if (buf == NULL) {
+      reply_500(req);
+      return ESP_FAIL;
+  }
+  // Get the query string itself
+  if (httpd_req_get_url_query_str(req, buf, buf_len) != ESP_OK)
+    free(buf);
+    reply_400(req);
+    return ESP_FAIL;
+  
+  ESP_LOGI(TAG, "Found URL query => %s", buf);
+  char param[32];
+  // Extract the value for a specific key "param1"
+  if (httpd_query_key_value(buf, "gpio", param, sizeof(param)) != ESP_OK){
+    free(buf);
+    reply_400(req);
+    return ESP_FAIL;
   }
   free(buf);
+
+  ESP_LOGI(TAG, "Found key 'param1' = %s", param);
+  uint64_t g = gpiov_to_macro(atoi(param));
+  if (!g) {
+    reply_400(req);
+    return ESP_FAIL;
+  }
+  int level = server_ctx.pins_level[atoi(param)];
+  char str[32] = {0};
+  str[0] = '0' + level;
+  httpd_resp_send(req, str, HTTPD_RESP_USE_STRLEN);
+  // Use 'param' value in your application logic
   return ESP_OK;
-err:
-  free(buf);
-  return ESP_FAIL;
 }
 static esp_err_t gpio_handler(httpd_req_t *req) {
   int len;
@@ -448,7 +477,10 @@ static esp_err_t gpio_handler(httpd_req_t *req) {
   if (httpd_query_key_value(buf, "gpio", gpiov, sizeof(gpiov)) == ESP_OK) {
     ESP_LOGI(TAG, "found param gpio=%s",gpiov);
     uint64_t g = gpiov_to_macro(atoi(gpiov));
-    if (!g) goto err;
+    if (!g){
+      reply_400(req);
+      goto err;
+    }
     if (httpd_query_key_value(buf, "value", value, sizeof(value)) == ESP_OK) {
       ESP_LOGI(TAG, "found param switch=%s", value);
       if (!strcmp(value, "off")) {
@@ -544,8 +576,18 @@ static esp_err_t update_datetime_handler(httpd_req_t *req) {
   ESP_LOGI(TAG, "=========== DECODED DATA ==========");
   ESP_LOGI(TAG, "%.*s", strlen(decoded), decoded);
   ESP_LOGI(TAG, "====================================");
-  struct tm date_time = parse_time_buf(decoded, strlen(decoded));
+  int year, mon, day, hour, min;
+  int ret = sscanf(decoded, "%04u-%02u-%02uT%02u:%02u", &year, &mon, &day, &hour, &min);
   free(decoded);
+  if (ret < 5) return ESP_FAIL;
+  struct tm date_time = {
+    .tm_year = year < 1900 ? 1900 : year - 1900,
+    .tm_mon = mon < 1 ? 0 : mon - 1,
+    .tm_mday = (day < 1 || mday > 31) ? 1 : mday,
+    .tm_hour = (hour < 0 || hour > 23) ? 0 : hour,
+    .tm_min = (min < 0 || min > 59) ? 0 : min,
+    .tm_sec = 0
+  };
   time_t epoch = mktime(&date_time);
   settimeofday(&(const struct timeval){epoch, 0}, NULL);
   if (1) goto err;
