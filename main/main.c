@@ -413,9 +413,9 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
     schedule_ctx->is_active = 1;
     memcpy(&schedule_ctx->sched_config, &sched_conf, sizeof(sched_conf));
 
-    httpd_resp_set_status(req, "201 Created");
-    httpd_resp_set_hdr(req, "Location", "/");
-    httpd_resp_send(req, "Redirecting", HTTPD_RESP_USE_STRLEN);
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
+    httpd_resp_send(req, "Redirecting...", HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
   }
   reply_500(req);
