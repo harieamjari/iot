@@ -3,7 +3,7 @@
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_schedule.h"
 
-#define MAX_SCHEDULES 24
+#define MAX_SCHEDULES 256
 typedef struct schedule_t schedule_t;
 struct schedule_t {
   uint64_t gpio;

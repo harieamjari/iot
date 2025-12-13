@@ -63,7 +63,7 @@ update_checkbox('22');
 update_checkbox('23');
 const url_params = new URLSearchParams(window.location.search);
 const tab_param_value = url_params.get('tab');
-if (tab_param_value === 'lighting_tab')
+if (tab_param_value === 'lighting')
   document.getElementById("lighting_button").click();
 else {
   document.getElementById("status_button").click();

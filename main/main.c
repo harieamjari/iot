@@ -1,11 +1,3 @@
-/* Simple HTTP Server Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
 
 #include "esp_check.h"
 #include "esp_event.h"
@@ -25,12 +17,10 @@
 #include <time.h>
 #include <unistd.h>
 #include <ctype.h>
-#if !CONFIG_IDF_TARGET_LINUX
 #include "esp_eth.h"
 #include "nvs_flash.h"
 #include <esp_system.h>
 #include <esp_wifi.h>
-#endif // !CONFIG_IDF_TARGET_LINUX
 #include "server.h"
 
 #define EXAMPLE_HTTP_QUERY_KEY_MAX_LEN (64)
@@ -162,6 +152,19 @@ static void format_table_int(char *buf, int len, char *name, int value) {
 static void format_table_u32(char *buf, int len, char *name, uint32_t value) {
   snprintf(buf, len, "<tr><td>%s</td><td>%"PRIu32"</td></tr>", name, value);
 }
+static const char *macro_to_str(int gpio) {
+  switch (gpio) {
+    case 22: return "Attic 1";
+    case 23: return "Attic 2";
+    case 25: return "Living room";
+    case 26: return "Family room";
+    case 27: return "Dining room";
+    case 32: return "";
+    case 33: return "Bathroom";
+    default: return "";
+  }
+
+}
 //uint32_t read_voltage(adc1_channel_t channel){
 //  esp_adc_cal_characteristics_t *adc_chars = calloc(1, sizeof(esp_adc_cal_characteristics_t));
 //  esp_adc_cal_value_t val_type = esp_adc_cal_characterize(unit, atten, ADC_WIDTH_BIT_12, DEFAULT_VREF, adc_chars);
@@ -224,19 +227,18 @@ static esp_err_t status_table_handler(httpd_req_t *req) {
   return ESP_OK; 
 }
 
-static void format_schedule_table_str(char *buf, int len, char *name, uint8_t hours, uint8_t minutes, uint8_t switchv ) {
-  snprintf(buf, len, "<tr><td>%s</td><td>%"PRIu8":%"PRIu8"</td><td>%"PRIu8"</td></tr>", name, hours, minutes, switchv);
+static void format_schedule_table_str(char *buf, int len, char *name, uint64_t gpio, uint8_t hours, uint8_t minutes, uint8_t switchv ) {
+  snprintf(buf, len, "<tr><td>%s</td><td>%"PRIu8":%02"PRIu8"</td><td>%s</td></tr>",macro_to_str(gpio), hours, minutes, switchv ? "on":"off");
 }
 
 static esp_err_t schedule_table_handler(httpd_req_t *req) {
-  esp_chip_info_t chip_info;
-  uint32_t flash_size;
-  esp_chip_info(&chip_info);
   char buf[256];
+  snprintf(buf, sizeof(buf), "<tr><td>Room</td><td>Time</td><td>Switch</td></tr>");
+  httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
   for (int i = 0; i < MAX_SCHEDULES; i++) {
     if (server_ctx.schedules[i].is_active) {
       schedule_t *sched = &server_ctx.schedules[i];
-        format_schedule_table_str(buf, sizeof(buf), sched->sched_config.name, sched->sched_config.triger.hours, sched->sched_config.trigger.minutes, sched->switchv);
+        format_schedule_table_str(buf, sizeof(buf), sched->sched_config.name, sched->gpio, sched->sched_config.trigger.hours, sched->sched_config.trigger.minutes, sched->switchv);
         httpd_resp_send_chunk(req, buf, HTTPD_RESP_USE_STRLEN);
     }
       
@@ -273,7 +275,7 @@ static int read_buf(httpd_req_t *req, char *buf, size_t len) {
     }
 
     /* Send back the same data */
-    httpd_resp_send_chunk(req, buf, ret);
+    //httpd_resp_send_chunk(req, buf, ret);
     read += ret;
 
   }
@@ -293,6 +295,7 @@ static uint64_t gpiov_to_macro(int gpio){
     default: return 0;
   }
 }
+
 static int macro_to_gpiov(uint64_t gpio){
   // .pin_bit_mask = (GGPIO(22) | GGPIO(23) | GGPIO(25) | GGPIO(26) | GGPIO(27) | GGPIO(32) | GGPIO(33)),
   switch (gpio) {
@@ -316,6 +319,8 @@ static int schedule_get_unused_ndx() {
 static void schedule_trigger_cb(esp_schedule_handle_t handle, void *priv_data)
 {
   schedule_t *schedule = priv_data;
+  ESP_LOGI(TAG, "sched triggred in cb");
+  ESP_LOGI(TAG, "gpio=%d", macro_to_gpiov(schedule->gpio));
   if (schedule->switchv) {
     gpio_set_level(schedule->gpio, 1);
     server_ctx.pins_level[macro_to_gpiov(schedule->gpio)] = 1;
@@ -325,6 +330,7 @@ static void schedule_trigger_cb(esp_schedule_handle_t handle, void *priv_data)
     server_ctx.pins_level[macro_to_gpiov(schedule->gpio)] = 0;
   
   }
+  ESP_LOGI(TAG, "sched done triggred in cb");
 }
 static void schedule_timestamp_cb(esp_schedule_handle_t handle, uint32_t next_timestamp, void *priv_data)
 {
@@ -354,7 +360,7 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
     return ESP_FAIL;
   }
 
-  schedule_t *schedule_ctx = &server_ctx.schedules[i];
+  schedule_t *schedule_ctx = &server_ctx.schedules[schedule_ndx];
   esp_schedule_config_t sched_conf = {
     .name = "",
     .trigger.type = ESP_SCHEDULE_TYPE_DAYS_OF_WEEK,
@@ -376,12 +382,12 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
     return ESP_FAIL;
   }
   gpio = gpiov_to_macro(atoi(value));
+  ESP_LOGI(TAG, "gpio=%"PRIu64, gpio);
   if (!gpio){
     free(decoded);
     reply_400(req);
     return ESP_FAIL;
   }
-  memcpy(sched_conf.name, value, 2);
   if (httpd_query_key_value(decoded, "time", value, sizeof(value)) != ESP_OK) {
     free(decoded);
     reply_400(req);
@@ -397,13 +403,19 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
   }
   free(decoded);
   switchv = value[0] - '0';
-  sched_conf.trigger.hours = (hour < 0 || hour > 23) ? 0 : hour;
-  sched_conf.trigger.minutes = (minute < 0 || minute > 59) ? 0 : minute;
+  sched_conf.trigger.hours = (hour > 23) ? 0 : hour;
+  sched_conf.trigger.minutes = (minute > 59) ? 0 : minute;
+  if (schedule_ndx > 99) {
+    reply_400(req);
+    return ESP_FAIL;
+  }
+  snprintf(sched_conf.name, sizeof(sched_conf.name), "IoT schedule%d", schedule_ndx);
+
+
+  memcpy(&schedule_ctx->sched_config, &sched_conf, sizeof(sched_conf));
+  schedule_ctx->sched_handle = esp_schedule_create(&schedule_ctx->sched_config);
+  schedule_ctx->gpio = gpio;
   schedule_ctx->switchv = switchv;
-  snprintf(sched_conf.name, sizeof(sched_conf.name), "schedule%d", schedule_ndx);
-
-
-  schedule_ctx->sched_handle = esp_schedule_create(&sched_conf);
   if (schedule_ctx->sched_handle) {
     ESP_LOGI(TAG, "Created days of week schedule successfully");
     if (esp_schedule_enable(schedule_ctx->sched_handle) != ESP_OK) {
@@ -411,11 +423,10 @@ static esp_err_t add_schedule_handler(httpd_req_t *req) {
       return ESP_FAIL;
     }
     schedule_ctx->is_active = 1;
-    memcpy(&schedule_ctx->sched_config, &sched_conf, sizeof(sched_conf));
 
-    httpd_resp_set_status(req, "303 See Other");
+    ESP_ERROR_CHECK(httpd_resp_set_status(req, "303 See Other"));
     httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
-    httpd_resp_send(req, "Redirecting...", HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send(req, "Redirecting...", 14);
     return ESP_OK;
   }
   reply_500(req);
@@ -436,10 +447,11 @@ static esp_err_t gpio_level_handler(httpd_req_t *req) {
       return ESP_FAIL;
   }
   // Get the query string itself
-  if (httpd_req_get_url_query_str(req, buf, buf_len) != ESP_OK)
+  if (httpd_req_get_url_query_str(req, buf, buf_len) != ESP_OK) {
     free(buf);
     reply_400(req);
     return ESP_FAIL;
+  }
   
   ESP_LOGI(TAG, "Found URL query => %s", buf);
   char param[32];
@@ -491,7 +503,7 @@ static esp_err_t gpio_handler(httpd_req_t *req) {
 	server_ctx.pins_level[atoi(gpiov)] = 1;
       }
       else goto err;
-      httpd_resp_set_status(req, "201 Created");
+      httpd_resp_set_status(req, "303 See Other");
       httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
       httpd_resp_send(req, NULL, 0);
       return ESP_OK;
@@ -583,7 +595,7 @@ static esp_err_t update_datetime_handler(httpd_req_t *req) {
   struct tm date_time = {
     .tm_year = year < 1900 ? 1900 : year - 1900,
     .tm_mon = mon < 1 ? 0 : mon - 1,
-    .tm_mday = (day < 1 || mday > 31) ? 1 : mday,
+    .tm_mday = (day < 1 || day > 31) ? 1 : day,
     .tm_hour = (hour < 0 || hour > 23) ? 0 : hour,
     .tm_min = (min < 0 || min > 59) ? 0 : min,
     .tm_sec = 0
@@ -603,8 +615,16 @@ static esp_err_t remove_schedule_handler(httpd_req_t *req) {
   ESP_LOGI(TAG, "=========== RECEIVED DATA ==========");
   ESP_LOGI(TAG, "%.*s", len, buf);
   ESP_LOGI(TAG, "====================================");
+  int index;
+  int ret = sscanf(buf, "index=%d", &index);
+  if (ret < 1 || index > 255 || !server_ctx.schedules[index].is_active) {
+    reply_400(req);
+    return ESP_FAIL;
+  }
+  esp_schedule_delete(server_ctx.schedules[index].sched_handle);
+  server_ctx.schedules[index].is_active = 0;
 
-  httpd_resp_set_status(req, "201 Created");
+  httpd_resp_set_status(req, "303 See Other");
   httpd_resp_set_hdr(req, "Location", "/?tab=lighting");
   httpd_resp_send(req, NULL, 0);
   return ESP_OK;
@@ -781,6 +801,15 @@ static void gpio_conf(){
   gpio_config(&io_conf_input);
 }
 
+void scheduling_init() {
+  uint8_t schedule_nb;
+  esp_schedule_handle_t *schedule_list = esp_schedule_init(true, NULL, &schedule_nb);
+  for (uint8_t i = 0; i < schedule_nb; i++) {
+    esp_schedule_delete(schedule_list[i]);
+  }
+  free(schedule_list);
+}
+
 void app_main(void) {
   memset(&server_ctx, 0, sizeof(server_ctx));
   httpd_handle_t server;
@@ -803,6 +832,8 @@ void app_main(void) {
   /* init gpio pins */
   gpio_conf();
   adc_iot_init(&server_ctx);
+  scheduling_init();
+
 
 
 
